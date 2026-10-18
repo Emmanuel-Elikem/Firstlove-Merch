@@ -1,0 +1,8 @@
+{
+  "name": "First Love Merch Store",
+  "description": "Official pre-order storefront for First Love Cape Coast shirts with direct Mobile Money payment and WhatsApp verification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

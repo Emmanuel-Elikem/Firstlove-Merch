@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>First Love Cape Coast Merch Store</title>
+    <meta name="description" content="Official pre-order storefront for First Love Cape Coast shirts with direct Mobile Money payment and WhatsApp verification." />
+    <meta property="og:title" content="First Love Cape Coast Merch Store" />
+    <meta property="og:description" content="Official pre-order storefront for First Love Cape Coast shirts with direct Mobile Money payment and WhatsApp verification." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+      // Gracefully prevent harmless Vite HMR WebSocket disconnect rejections in preview sandbox iframe
+      window.addEventListener('unhandledrejection', function (e) {
+        var reason = e.reason;
+        var msg = (reason && (reason.message || reason.stack || String(reason))) || '';
+        if (msg.includes('WebSocket') || msg.includes('vite') || msg.includes('@vite/client')) {
+          e.preventDefault();
+        }
+      });
+    </script>
+  </head>
+  <body class="bg-neutral-950 text-neutral-100 antialiased selection:bg-blue-600 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
