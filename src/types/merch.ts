@@ -10,6 +10,9 @@ export type ShirtColor =
   | 'lovelets'
   | 'ushers'
   | 'hearing-and-seeing'
+  | 'culinary-stars'
+  | 'worship-stars'
+  | 'sheep-seeking'
   // First Love Church Merch Shirts
   | 'black-cyan'
   | 'blue-yellow'

@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { ColorOption, ShirtColor, ShirtEdition, ShirtSize } from '../types/merch';
-import { COLOR_OPTIONS, BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, SHIRT_EDITIONS, deduplicateById, sanitizeBasontas } from '../data/merchData';
+import { COLOR_OPTIONS, BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, SHIRT_EDITIONS, deduplicateById, sanitizeBasontas, unitPriceForShirt, BASONTA_PRICE_GHC } from '../data/merchData';
 import { ShirtPhotoCard } from './ShirtPhotoCard';
 import { EditionSelector } from './EditionSelector';
 import { 
@@ -57,6 +57,8 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
   const allAvailableShirts = deduplicateById([...uniqueBasontas, ...FIRST_LOVE_MERCH_SHIRTS]);
   const selectedColor = allAvailableShirts.find((c) => c.id === selectedColorId) || allAvailableShirts[0];
   const selectedEditionData = SHIRT_EDITIONS[selectedEdition];
+  const unitPrice = unitPriceForShirt(selectedColor, selectedEdition, selectedColorId);
+  const isBasontaSelected = selectedColor?.category === 'basonta';
   const currentIndex = allAvailableShirts.findIndex((c) => c.id === selectedColorId);
 
   const handleSelectColorAndScroll = (colorId: ShirtColor) => {
@@ -117,7 +119,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
             {/* Step 2 */}
             <div className="col-span-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-300 text-[11px] sm:text-xs font-semibold">
               <span className="w-4 h-4 rounded-full bg-neutral-800 text-neutral-400 flex items-center justify-center text-[10px] font-black shrink-0">2</span>
-              <span className="hidden sm:inline">GHC 60/100</span>
+              <span className="hidden sm:inline">GHC 35 / 60</span>
             </div>
 
             {/* Arrow 2 -> 3 */}
@@ -211,7 +213,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
                 Basonta Ministry Workforce Shirts
               </h3>
               <p className="text-xs text-neutral-400 mt-0.5">
-                Official workforce apparel for each ministry wing. Tap any shirt to customize and pre-order.
+                Official workforce apparel for each ministry wing — <strong className="text-neutral-300">GHC {BASONTA_PRICE_GHC}</strong> each.
               </p>
             </div>
           </div>
@@ -343,9 +345,13 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
 
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-2xl font-mono font-black text-white tabular-nums">
-                  GHC {selectedEditionData.priceGhc.toFixed(2)}
+                  GHC {unitPrice.toFixed(2)}
                 </span>
-                <span className="text-xs text-neutral-500">per shirt (Cape Coast Collection)</span>
+                <span className="text-xs text-neutral-500">
+                  {isBasontaSelected
+                    ? `per basonta shirt (GHC ${BASONTA_PRICE_GHC})`
+                    : 'per shirt (Cape Coast Collection)'}
+                </span>
               </div>
             </div>
 
@@ -369,7 +375,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
                 </span>
               </div>
               <div className="text-xl font-mono font-black text-white tabular-nums">
-                GHC {(selectedEditionData.priceGhc * quantity).toFixed(2)}
+                GHC {(unitPrice * quantity).toFixed(2)}
               </div>
             </div>
 

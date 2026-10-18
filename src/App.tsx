@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ShirtColor, ShirtEdition, ShirtSize, CartItem, CustomerOrder, PhotoMap, ColorOption } from './types/merch';
-import { COLOR_OPTIONS, BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, SHIRT_EDITIONS, INITIAL_ORDERS, deduplicateById, sanitizeBasontas } from './data/merchData';
+import { COLOR_OPTIONS, BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, SHIRT_EDITIONS, INITIAL_ORDERS, deduplicateById, sanitizeBasontas, unitPriceForShirt } from './data/merchData';
 import { Navbar } from './components/Navbar';
 import { LandscapeCampaignBanner } from './components/LandscapeCampaignBanner';
 import { ColorGallerySection } from './components/ColorGallerySection';
@@ -116,6 +116,9 @@ export default function App() {
       'lovelets': '/images/lovelets.png',
       'ushers': '/images/ushers.png',
       'hearing-and-seeing': '/images/hearing-and-seeing.jpg',
+      'culinary-stars': '/images/culinary-stars.png',
+      'worship-stars': '/images/worship-stars.png',
+      'sheep-seeking': '/images/sheep-seeking.png',
     };
     try {
       const cached = localStorage.getItem('flc_uploaded_photos');
@@ -412,7 +415,9 @@ export default function App() {
 
   // Cart operations
   const handleAddToCart = (openCartImmediately: boolean = false) => {
-    const currentPrice = SHIRT_EDITIONS[selectedEdition].priceGhc;
+    const allShirtsForPrice = [...basontas, ...FIRST_LOVE_MERCH_SHIRTS];
+    const selectedShirt = allShirtsForPrice.find((c) => c.id === selectedColorId);
+    const currentPrice = unitPriceForShirt(selectedShirt, selectedEdition, selectedColorId);
     const existingIndex = cartItems.findIndex(
       (item) => item.edition === selectedEdition && item.color === selectedColorId && item.size === selectedSize
     );
@@ -420,6 +425,7 @@ export default function App() {
     if (existingIndex >= 0) {
       const updated = [...cartItems];
       updated[existingIndex].quantity += quantity;
+      updated[existingIndex].unitPrice = currentPrice;
       updated[existingIndex].subtotal = updated[existingIndex].quantity * currentPrice;
       setCartItems(updated);
     } else {
@@ -435,8 +441,7 @@ export default function App() {
       setCartItems([...cartItems, newItem]);
     }
 
-    const allShirts = [...basontas, ...FIRST_LOVE_MERCH_SHIRTS];
-    const colorName = allShirts.find((c) => c.id === selectedColorId)?.shortName || selectedColorId;
+    const colorName = allShirtsForPrice.find((c) => c.id === selectedColorId)?.shortName || selectedColorId;
     showToast(`Added ${quantity}x ${colorName} (${selectedSize}) to pre-order bag!`);
 
     if (openCartImmediately) {

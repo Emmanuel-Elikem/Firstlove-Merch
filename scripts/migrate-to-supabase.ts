@@ -1,5 +1,12 @@
 /**
- * One-time migration: local data/*.json + public/images → Supabase.
+ * One-time migration: local data + images → Supabase Storage (no database tables).
+ *
+ * Uploads:
+ *   - data/orders.json  → merch-data/orders.json   (private bucket)
+ *   - data/basontas.json → merch-data/basontas.json (private bucket)
+ *   - public/images/*   → merch-photos/<file>      (public bucket; includes all basonta
+ *     shirt photos such as culinary-stars, worship-stars, sheep-seeking, film-stars,
+ *     fragrance-ministry, hearing-and-seeing, dancing-stars, etc.)
  *
  * Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment.
  * Run: npx tsx scripts/migrate-to-supabase.ts
@@ -12,8 +19,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import {
   supabaseEnabled,
-  upsertOrder,
-  upsertBasonta,
+  uploadDataFile,
   uploadPhoto,
 } from '../supabase-store.ts';
 
@@ -30,6 +36,7 @@ function mimeForExt(ext: string): string {
   const e = ext.toLowerCase();
   if (e === 'jpg' || e === 'jpeg') return 'image/jpeg';
   if (e === 'webp') return 'image/webp';
+  if (e === 'json') return 'application/json';
   return 'image/png';
 }
 
@@ -41,37 +48,25 @@ async function main() {
     process.exit(1);
   }
 
-  let ordersMigrated = 0;
-  let basontasMigrated = 0;
+  let dataFiles = 0;
   let photosMigrated = 0;
 
   if (fs.existsSync(ORDERS_FILE)) {
-    const orders = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf-8'));
-    if (Array.isArray(orders)) {
-      for (const order of orders) {
-        if (!order?.id) continue;
-        await upsertOrder(order);
-        ordersMigrated += 1;
-        console.log(`[orders] upserted ${order.id}`);
-      }
-    }
+    const buf = fs.readFileSync(ORDERS_FILE);
+    await uploadDataFile('orders.json', buf, 'application/json');
+    dataFiles += 1;
+    console.log('[merch-data] uploaded orders.json');
   } else {
-    console.log('[orders] data/orders.json not found — skipped');
+    console.log('[merch-data] data/orders.json not found — skipped');
   }
 
   if (fs.existsSync(BASONTAS_FILE)) {
-    const basontas = JSON.parse(fs.readFileSync(BASONTAS_FILE, 'utf-8'));
-    if (Array.isArray(basontas)) {
-      for (let i = 0; i < basontas.length; i++) {
-        const b = basontas[i];
-        if (!b?.id) continue;
-        await upsertBasonta(b, i);
-        basontasMigrated += 1;
-        console.log(`[basontas] upserted ${b.id} (sort_order=${i})`);
-      }
-    }
+    const buf = fs.readFileSync(BASONTAS_FILE);
+    await uploadDataFile('basontas.json', buf, 'application/json');
+    dataFiles += 1;
+    console.log('[merch-data] uploaded basontas.json');
   } else {
-    console.log('[basontas] data/basontas.json not found — skipped');
+    console.log('[merch-data] data/basontas.json not found — skipped');
   }
 
   if (fs.existsSync(IMAGES_DIR)) {
@@ -83,14 +78,14 @@ async function main() {
       const buf = fs.readFileSync(path.join(IMAGES_DIR, file));
       const url = await uploadPhoto(key, ext === 'jpeg' ? 'jpg' : ext, buf, mimeForExt(ext));
       photosMigrated += 1;
-      console.log(`[photos] uploaded ${key} → ${url}`);
+      console.log(`[merch-photos] uploaded ${key} → ${url}`);
     }
   } else {
-    console.log('[photos] public/images not found — skipped');
+    console.log('[merch-photos] public/images not found — skipped');
   }
 
   console.log(
-    `\nDone. Migrated ${ordersMigrated} orders, ${basontasMigrated} basontas, ${photosMigrated} photos.`
+    `\nDone. Uploaded ${dataFiles} JSON doc(s) to merch-data and ${photosMigrated} image(s) to merch-photos.`
   );
 }
 

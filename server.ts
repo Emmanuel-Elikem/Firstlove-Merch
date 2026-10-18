@@ -14,11 +14,89 @@ import {
   findOrderByPaystackReference as sbFindByPaystackRef,
   findOrderByMomoReference as sbFindByMomoRef,
   listBasontas as sbListBasontas,
+  saveBasontas as sbSaveBasontas,
   upsertBasonta as sbUpsertBasonta,
   deleteBasonta as sbDeleteBasonta,
   uploadPhoto as sbUploadPhoto,
   listPhotos as sbListPhotos,
 } from './supabase-store.ts';
+
+/** Pricing: basonta shirts GHC 35; First Love merch GHC 60 (standard) / 100 (premium). Server recomputes — does not trust client unit prices. */
+const BASONTA_PRICE_GHC = 35;
+const MERCH_STANDARD_PRICE_GHC = 60;
+const MERCH_PREMIUM_PRICE_GHC = 100;
+const FEE_PER_SHIRT_GHC = 1;
+const FIRST_LOVE_COLOR_IDS = new Set([
+  'black-cyan',
+  'blue-yellow',
+  'white-purple',
+  'purple-yellow',
+  'white-teal',
+  'sand-green',
+]);
+
+function unitPriceForItem(colorId: string, edition: string, basontaIds: Set<string>): number {
+  // Basonta / ministry shirts (known catalog or custom non-merch ids) → GHC 35
+  if (basontaIds.has(colorId) || !FIRST_LOVE_COLOR_IDS.has(colorId)) {
+    return BASONTA_PRICE_GHC;
+  }
+  // First Love merch: standard GHC 60, premium/heavyweight GHC 100
+  if (edition === 'premium') return MERCH_PREMIUM_PRICE_GHC;
+  return MERCH_STANDARD_PRICE_GHC;
+}
+
+async function loadBasontaIdSet(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  try {
+    const list = supabaseEnabled ? await sbListBasontas() : readBasontasFromFile();
+    for (const b of list || []) {
+      if (b?.id) ids.add(b.id);
+    }
+  } catch {
+    // ignore
+  }
+  // Always include catalog defaults even if file empty
+  for (const id of [
+    'dancing-stars',
+    'film-stars',
+    'fragrance-ministry',
+    'lovelets',
+    'ushers',
+    'hearing-and-seeing',
+    'culinary-stars',
+    'worship-stars',
+    'sheep-seeking',
+  ]) {
+    ids.add(id);
+  }
+  return ids;
+}
+
+function normalizeOrderPricing(order: any, basontaIds: Set<string>) {
+  if (!Array.isArray(order.items)) {
+    throw new Error('Invalid order items');
+  }
+  let subtotalGhc = 0;
+  let shirtCount = 0;
+  const items = order.items.map((item: any) => {
+    const qty = Math.max(1, Number(item.quantity) || 1);
+    const unitPrice = unitPriceForItem(String(item.color || ''), String(item.edition || 'standard'), basontaIds);
+    const subtotal = unitPrice * qty;
+    subtotalGhc += subtotal;
+    shirtCount += qty;
+    return { ...item, quantity: qty, unitPrice, subtotal };
+  });
+  const processingFeeGhc = shirtCount * FEE_PER_SHIRT_GHC;
+  const totalAmountGhc = subtotalGhc + processingFeeGhc;
+  return {
+    ...order,
+    items,
+    subtotalGhc,
+    processingFeeGhc,
+    feePerShirtGhc: FEE_PER_SHIRT_GHC,
+    totalAmountGhc,
+  };
+}
 
 dotenv.config();
 
@@ -552,27 +630,21 @@ app.get('/api/orders', async (_req: Request, res: Response) => {
 
 app.post('/api/orders', async (req: Request, res: Response) => {
   try {
-    const newOrder = req.body;
-    if (!newOrder.id || !newOrder.items || !newOrder.totalAmountGhc) {
+    const incoming = req.body;
+    if (!incoming.id || !incoming.items) {
       return res.status(400).json({ success: false, message: 'Invalid order payload' });
     }
 
-    if (!newOrder.paymentMode) {
-      newOrder.paymentMode = 'live';
+    if (!incoming.paymentMode) {
+      incoming.paymentMode = 'live';
     }
 
+    const basontaIds = await loadBasontaIdSet();
+    const newOrder = normalizeOrderPricing(incoming, basontaIds);
+
     if (supabaseEnabled) {
-      let existing: any = (await sbGetOrder(newOrder.id)) || null;
-      if (!existing && newOrder.momoReference) {
-        existing = await sbFindByMomoRef(newOrder.momoReference);
-      }
-      if (existing) {
-        const merged = { ...existing, ...newOrder, id: existing.id };
-        await sbUpsertOrder(merged);
-        return res.json({ success: true, order: merged });
-      }
-      await sbUpsertOrder(newOrder);
-      return res.json({ success: true, order: newOrder });
+      const saved = await sbUpsertOrder(newOrder);
+      return res.json({ success: true, order: saved });
     }
 
     const orders = getStoredOrdersFromFile();
@@ -581,11 +653,12 @@ app.post('/api/orders', async (req: Request, res: Response) => {
     );
 
     if (existingIndex >= 0) {
-      orders[existingIndex] = { ...orders[existingIndex], ...newOrder };
-    } else {
-      orders.unshift(newOrder);
+      orders[existingIndex] = { ...orders[existingIndex], ...newOrder, id: orders[existingIndex].id };
+      saveOrdersToFile(orders);
+      return res.json({ success: true, order: orders[existingIndex] });
     }
 
+    orders.unshift(newOrder);
     saveOrdersToFile(orders);
     res.json({ success: true, order: newOrder });
   } catch (error: any) {
@@ -694,16 +767,7 @@ app.post('/api/basontas', async (req: Request, res: Response) => {
         list.push(basonta);
       }
       const dedupedList = dedupeBasontas(list);
-      await sbUpsertBasonta(
-        dedupedList.find((b: any) => b.id === basonta.id) || basonta,
-        idx >= 0 ? idx : list.length - 1
-      );
-      // Remove any rows filtered out by dedupe
-      for (const b of list) {
-        if (b?.id && !dedupedList.some((d: any) => d.id === b.id)) {
-          await sbDeleteBasonta(b.id);
-        }
-      }
+      await sbSaveBasontas(dedupedList);
       return res.json({ success: true, basontas: dedupedList });
     }
 
@@ -782,7 +846,7 @@ app.post('/api/photos/upload', async (req: Request, res: Response) => {
             const idx = currentBasontas.findIndex((b: any) => b.id === key);
             if (idx >= 0) {
               const updated = { ...currentBasontas[idx], imageFile: savedUrl };
-              await sbUpsertBasonta(updated, idx);
+              await sbUpsertBasonta(updated);
               console.log(`[Photos] Updated basonta imageFile for ${key}`);
             }
           } catch (e) {
