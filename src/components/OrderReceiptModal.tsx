@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CustomerOrder } from '../types/merch';
-import { COLOR_OPTIONS, SHIRT_EDITIONS } from '../data/merchData';
+import { COLOR_OPTIONS, cartItemTitle, isBasontaColor, BASONTA_PRICE_GHC } from '../data/merchData';
 import { 
   CheckCircle2, X, MessageCircle, Copy, Check, 
   ExternalLink, Users, Package, Smartphone, Camera 
@@ -23,8 +23,12 @@ export const getFormattedTicketMessage = (order: CustomerOrder) => {
   const itemsSummary = order.items
     .map((i, idx) => {
       const color = COLOR_OPTIONS.find((c) => c.id === i.color);
-      const edition = SHIRT_EDITIONS[i.edition];
-      return `${idx + 1}. *${i.quantity}x ${edition?.name || i.edition}*\n   • Color: ${color?.name || color?.shortName || i.color}\n   • Size: ${i.size}\n   • Amount: GHC ${i.subtotal.toFixed(2)}`;
+      const basonta = isBasontaColor(color, i.color);
+      const title = cartItemTitle(i, COLOR_OPTIONS);
+      const typeLine = basonta
+        ? `   • Type: Basonta (GHC ${BASONTA_PRICE_GHC})`
+        : `   • Color: ${color?.name || color?.shortName || i.color}`;
+      return `${idx + 1}. *${i.quantity}x ${title}*\n${typeLine}\n   • Size: ${i.size}\n   • Amount: GHC ${i.subtotal.toFixed(2)}`;
     })
     .join('\n\n');
 
@@ -210,7 +214,8 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
               <div className="divide-y divide-neutral-800/60 p-1.5">
                 {order.items.map((item) => {
                   const color = COLOR_OPTIONS.find((c) => c.id === item.color);
-                  const edition = SHIRT_EDITIONS[item.edition];
+                  const basonta = isBasontaColor(color, item.color);
+                  const title = cartItemTitle(item, COLOR_OPTIONS);
                   return (
                     <div key={item.id} className="py-2.5 px-2.5 flex items-center justify-between text-xs gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
@@ -220,10 +225,14 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                         />
                         <div className="min-w-0">
                           <div className="font-semibold text-white truncate">
-                            {item.quantity}x {edition?.name || item.edition}
+                            {item.quantity}x {title}
                           </div>
                           <div className="text-neutral-400 text-[11px] truncate">
-                            Colorway: {color?.name || color?.shortName} · Size: <span className="text-white font-mono font-bold">{item.size}</span>
+                            {basonta
+                              ? `Basonta · GHC ${BASONTA_PRICE_GHC}`
+                              : `Colorway: ${color?.name || color?.shortName}`}
+                            {' · Size: '}
+                            <span className="text-white font-mono font-bold">{item.size}</span>
                           </div>
                         </div>
                       </div>

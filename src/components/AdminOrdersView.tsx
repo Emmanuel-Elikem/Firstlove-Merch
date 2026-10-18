@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { CustomerOrder, ShirtEdition, ShirtColor, ShirtSize } from '../types/merch';
-import { COLOR_OPTIONS, SHIRT_EDITIONS, AVAILABLE_SIZES } from '../data/merchData';
+import {
+  COLOR_OPTIONS,
+  AVAILABLE_SIZES,
+  BASONTA_SHIRTS,
+  BASONTA_PRICE_GHC,
+  isBasontaColor,
+  cartItemProductLabel,
+} from '../data/merchData';
 import { CHURCH_MOMO_NAME, CHURCH_MOMO_NUMBER } from './CartDrawer';
 import { 
   Package, DollarSign, Download, Search, CheckCircle, Clock, 
@@ -60,7 +67,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
   let verifiedShirtsCount = 0;
 
   const sizeTally: Record<ShirtSize, number> = { S: 0, M: 0, L: 0, XL: 0, '2XL': 0, '3XL': 0 };
-  const colorTally: Record<ShirtColor, number> = {
+  const colorTally: Record<string, number> = {
     'black-cyan': 0,
     'blue-yellow': 0,
     'white-purple': 0,
@@ -68,7 +75,11 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
     'white-teal': 0,
     'sand-green': 0,
   };
+  for (const b of BASONTA_SHIRTS) {
+    colorTally[b.id] = 0;
+  }
   const editionTally: Record<ShirtEdition, number> = { standard: 0, premium: 0 };
+  let basontaTally = 0;
 
   orders.forEach((order) => {
     order.items.forEach((item) => {
@@ -77,8 +88,17 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
         verifiedShirtsCount += item.quantity;
       }
       if (sizeTally[item.size] !== undefined) sizeTally[item.size] += item.quantity;
-      if (colorTally[item.color] !== undefined) colorTally[item.color] += item.quantity;
-      if (editionTally[item.edition] !== undefined) editionTally[item.edition] += item.quantity;
+      if (colorTally[item.color] !== undefined) {
+        colorTally[item.color] += item.quantity;
+      } else if (isBasontaColor(item.color)) {
+        colorTally[item.color] = (colorTally[item.color] || 0) + item.quantity;
+      }
+      // Edition 60/100 tallies are First Love merch only — never count basontas
+      if (isBasontaColor(item.color)) {
+        basontaTally += item.quantity;
+      } else if (editionTally[item.edition] !== undefined) {
+        editionTally[item.edition] += item.quantity;
+      }
     });
   });
 
@@ -130,7 +150,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
       const fee = order.processingFeeGhc ?? (order.totalAmountGhc - orderSubtotal);
 
       order.items.forEach((item) => {
-        const edition = SHIRT_EDITIONS[item.edition]?.name || item.edition;
+        const productLabel = cartItemProductLabel(item, COLOR_OPTIONS);
         const colorName = getColorDisplayName(item.color);
 
         rows.push([
@@ -142,7 +162,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
           `"${order.momoSenderPhone || order.customerPhone}"`,
           `"${order.paymentStatus.toUpperCase()}"`,
           `"${order.collectionStatus.replace(/_/g, ' ').toUpperCase()}"`,
-          `"${edition}"`,
+          `"${productLabel}"`,
           `"${colorName}"`,
           `"${item.size}"`,
           `"${item.quantity}"`,
@@ -353,14 +373,18 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
             </div>
           </div>
 
-          {/* Edition Tally */}
+          {/* Edition / Basonta Tally — 60/100 are merch-only; basonta is flat 35 */}
           <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800/80">
             <span className="text-xs uppercase font-bold text-neutral-400 block mb-3">
-              Edition Breakdown
+              Edition / Product Breakdown
             </span>
             <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs p-2.5 rounded bg-neutral-900 border border-amber-500/30">
+                <span className="text-amber-300 font-medium">Basonta (GHC {BASONTA_PRICE_GHC})</span>
+                <span className="font-mono font-bold text-amber-400 tabular-nums">{basontaTally} shirts</span>
+              </div>
               <div className="flex items-center justify-between text-xs p-2.5 rounded bg-neutral-900 border border-neutral-800">
-                <span className="text-neutral-300 font-medium">Standard (GHC 60)</span>
+                <span className="text-neutral-300 font-medium">Standard Merch (GHC 60)</span>
                 <span className="font-mono font-bold text-white tabular-nums">{editionTally.standard} shirts</span>
               </div>
               <div className="flex items-center justify-between text-xs p-2.5 rounded bg-neutral-900 border border-neutral-800">

@@ -18,6 +18,7 @@ const PHOTOS_BUCKET = 'merch-photos';
 const DATA_BUCKET = 'merch-data';
 const ORDERS_OBJECT = 'orders.json';
 const BASONTAS_OBJECT = 'basontas.json';
+const DELETED_BASONTAS_OBJECT = 'deleted-basontas.json';
 
 /** Simple in-process mutex so concurrent Storage read-modify-writes don't clobber. */
 let writeChain: Promise<void> = Promise.resolve();
@@ -160,6 +161,38 @@ export async function deleteBasonta(id: string): Promise<any[]> {
     const current = await downloadJson<any[]>(BASONTAS_OBJECT, []);
     const list = (Array.isArray(current) ? current : []).filter((x: any) => x.id !== id);
     await uploadJson(BASONTAS_OBJECT, list);
+    return list;
+  });
+}
+
+/** Explicitly deleted default basonta ids — prevents re-injection on catalog merge. */
+export async function listDeletedBasontaIds(): Promise<string[]> {
+  const list = await downloadJson<string[]>(DELETED_BASONTAS_OBJECT, []);
+  return Array.isArray(list) ? list.filter((id) => typeof id === 'string' && id) : [];
+}
+
+export async function saveDeletedBasontaIds(ids: string[]): Promise<void> {
+  const unique = Array.from(new Set((ids || []).filter((id) => typeof id === 'string' && id)));
+  await withLock(async () => {
+    await uploadJson(DELETED_BASONTAS_OBJECT, unique);
+  });
+}
+
+export async function markBasontaDeleted(id: string): Promise<string[]> {
+  return withLock(async () => {
+    const current = await downloadJson<string[]>(DELETED_BASONTAS_OBJECT, []);
+    const list = Array.isArray(current) ? [...current] : [];
+    if (id && !list.includes(id)) list.push(id);
+    await uploadJson(DELETED_BASONTAS_OBJECT, list);
+    return list;
+  });
+}
+
+export async function unmarkBasontaDeleted(id: string): Promise<string[]> {
+  return withLock(async () => {
+    const current = await downloadJson<string[]>(DELETED_BASONTAS_OBJECT, []);
+    const list = (Array.isArray(current) ? current : []).filter((x) => x !== id);
+    await uploadJson(DELETED_BASONTAS_OBJECT, list);
     return list;
   });
 }

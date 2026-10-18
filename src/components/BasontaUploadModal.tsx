@@ -61,7 +61,7 @@ export const BasontaUploadModal: React.FC<BasontaUploadModalProps> = ({
               Upload Basonta Shirt Images
             </h3>
             <p className="text-xs text-neutral-400 mt-1">
-              Directly upload your authentic photos for each Basonta. You can also add more wings at any time.
+              Directly upload your authentic photos for each Basonta (flat GHC 35 each). You can also add more wings at any time.
             </p>
           </div>
 

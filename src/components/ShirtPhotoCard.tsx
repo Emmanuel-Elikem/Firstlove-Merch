@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
 import { ColorOption } from '../types/merch';
 import { ActualShirtPhoto } from './ActualShirtPhoto';
-import { Check, Camera, Upload, Sparkles } from 'lucide-react';
+import { BASONTA_PRICE_GHC } from '../data/merchData';
+import { Check, Camera } from 'lucide-react';
 
 interface ShirtPhotoCardProps {
   color: ColorOption;
@@ -82,6 +83,11 @@ export const ShirtPhotoCard: React.FC<ShirtPhotoCardProps> = ({
       <div className="p-3.5 bg-neutral-900 border-t border-neutral-800 flex items-center justify-between gap-2">
         <div className="overflow-hidden">
           <h4 className="text-xs sm:text-sm font-bold text-white truncate">{color.name}</h4>
+          {isBasonta && (
+            <span className="text-[10px] font-mono font-bold text-amber-400">
+              GHC {BASONTA_PRICE_GHC}
+            </span>
+          )}
         </div>
 
         <div className="text-right shrink-0 flex items-center gap-1.5">

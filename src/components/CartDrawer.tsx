@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CartItem, CustomerOrder } from '../types/merch';
-import { COLOR_OPTIONS, SHIRT_EDITIONS } from '../data/merchData';
+import { COLOR_OPTIONS, cartItemTitle, isBasontaColor, BASONTA_PRICE_GHC } from '../data/merchData';
 import { getFormattedTicketMessage, WHATSAPP_GROUP_LINK } from './OrderReceiptModal';
 import { 
   X, Trash2, ArrowRight, ShieldCheck, Phone, User, 
@@ -216,7 +216,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
                 <h3 className="text-sm font-bold text-neutral-300">Your pre-order bag is empty</h3>
                 <p className="text-xs text-neutral-500 mt-1 max-w-xs">
-                  Choose your shirt edition, colorway, and size to begin.
+                  Choose a basonta (GHC {BASONTA_PRICE_GHC}) or First Love merch shirt, then pick size to begin.
                 </p>
               </div>
             ) : (
@@ -235,7 +235,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <div className="divide-y divide-neutral-800 border border-neutral-800 rounded-xl overflow-hidden bg-neutral-950">
                     {items.map((item) => {
                       const color = COLOR_OPTIONS.find((c) => c.id === item.color);
-                      const edition = SHIRT_EDITIONS[item.edition];
+                      const basonta = isBasontaColor(color, item.color);
+                      const title = cartItemTitle(item, COLOR_OPTIONS);
 
                       return (
                         <div key={item.id} className="p-3 flex items-center justify-between gap-2.5">
@@ -246,13 +247,20 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             />
                             <div className="min-w-0">
                               <h4 className="text-xs font-bold text-white truncate">
-                                {edition?.name || item.edition}
+                                {title}
                               </h4>
                               <p className="text-[11px] text-neutral-400 truncate">
-                                {color?.shortName || item.color} · Size: <span className="text-white font-mono font-bold">{item.size}</span>
+                                {basonta
+                                  ? `Basonta · GHC ${BASONTA_PRICE_GHC} · Size: `
+                                  : `${color?.shortName || item.color} · Size: `}
+                                <span className="text-white font-mono font-bold">{item.size}</span>
+                                {!basonta && (
+                                  <span className="text-neutral-500"> · {item.unitPrice === 100 ? 'Premium' : 'Standard'}</span>
+                                )}
                               </p>
                               <span className="text-xs font-mono font-bold text-amber-400">
                                 GHC {item.subtotal.toFixed(2)}
+                                <span className="text-neutral-500 font-normal"> ({item.quantity}× {item.unitPrice.toFixed(0)})</span>
                               </span>
                             </div>
                           </div>

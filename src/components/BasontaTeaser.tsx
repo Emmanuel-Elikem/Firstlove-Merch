@@ -28,13 +28,13 @@ export const BasontaTeaser: React.FC = () => {
             Official First Love Church Workforce Wings
           </h3>
           <p className="text-xs text-neutral-400 mt-1 max-w-xl">
-            Pre-order your official ministry wing shirt at the top of the store.
+            Pre-order your official ministry wing shirt at the top of the store — flat <strong className="text-amber-300">GHC 35</strong> each (no Standard / Premium tiers).
           </p>
         </div>
 
         <div className="text-xs text-amber-300 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 self-start md:self-auto font-bold flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Active Pre-Order In Cape Coast</span>
+          <span>GHC 35 · Cape Coast Pre-Order</span>
         </div>
       </div>
 

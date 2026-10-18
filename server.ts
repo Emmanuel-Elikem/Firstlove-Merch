@@ -17,9 +17,18 @@ import {
   saveBasontas as sbSaveBasontas,
   upsertBasonta as sbUpsertBasonta,
   deleteBasonta as sbDeleteBasonta,
+  listDeletedBasontaIds as sbListDeletedBasontaIds,
+  saveDeletedBasontaIds as sbSaveDeletedBasontaIds,
+  markBasontaDeleted as sbMarkBasontaDeleted,
+  unmarkBasontaDeleted as sbUnmarkBasontaDeleted,
   uploadPhoto as sbUploadPhoto,
   listPhotos as sbListPhotos,
 } from './supabase-store.ts';
+import {
+  BASONTA_SHIRTS,
+  BASONTA_CATALOG_IDS,
+  mergeBasontasWithDefaults,
+} from './src/data/merchData.ts';
 
 /** Pricing: basonta shirts GHC 35; First Love merch GHC 60 (standard) / 100 (premium). Server recomputes — does not trust client unit prices. */
 const BASONTA_PRICE_GHC = 35;
@@ -48,7 +57,7 @@ function unitPriceForItem(colorId: string, edition: string, basontaIds: Set<stri
 async function loadBasontaIdSet(): Promise<Set<string>> {
   const ids = new Set<string>();
   try {
-    const list = supabaseEnabled ? await sbListBasontas() : readBasontasFromFile();
+    const list = await getMergedBasontas({ persistHeal: false });
     for (const b of list || []) {
       if (b?.id) ids.add(b.id);
     }
@@ -56,17 +65,7 @@ async function loadBasontaIdSet(): Promise<Set<string>> {
     // ignore
   }
   // Always include catalog defaults even if file empty
-  for (const id of [
-    'dancing-stars',
-    'film-stars',
-    'fragrance-ministry',
-    'lovelets',
-    'ushers',
-    'hearing-and-seeing',
-    'culinary-stars',
-    'worship-stars',
-    'sheep-seeking',
-  ]) {
+  for (const id of BASONTA_CATALOG_IDS) {
     ids.add(id);
   }
   return ids;
@@ -130,6 +129,7 @@ const PHOTOS_FILE = path.resolve(DATA_DIR, 'photos.json');
 const PUBLIC_DIR = path.resolve(__dirname, 'public');
 const IMAGES_DIR = path.resolve(PUBLIC_DIR, 'images');
 const BASONTAS_FILE = path.resolve(DATA_DIR, 'basontas.json');
+const DELETED_BASONTAS_FILE = path.resolve(DATA_DIR, 'deleted-basontas.json');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -210,6 +210,35 @@ async function getStoredPhotoUrls(): Promise<Record<string, string>> {
 if (!supabaseEnabled && !fs.existsSync(ORDERS_FILE)) {
   const initialOrders = [
     {
+      id: 'FLC-8020',
+      churchBranch: 'First Love Cape Coast',
+      customerName: 'Ama Boateng',
+      customerPhone: '0244001122',
+      customerEmail: 'ama.boateng@gmail.com',
+      pickupNotes: 'Basonta desk',
+      items: [
+        {
+          id: 'item-0',
+          edition: 'standard',
+          color: 'culinary-stars',
+          size: 'M',
+          quantity: 1,
+          unitPrice: 35,
+          subtotal: 35,
+        },
+      ],
+      subtotalGhc: 35,
+      processingFeeGhc: 1,
+      feePerShirtGhc: 1,
+      totalAmountGhc: 36,
+      currency: 'GHS',
+      paymentStatus: 'paid',
+      collectionStatus: 'pending',
+      channel: 'mobile_money',
+      paidAt: '2026-10-15T13:00:00Z',
+      createdAt: '2026-10-15T12:58:00Z',
+    },
+    {
       id: 'FLC-8021',
       churchBranch: 'First Love Cape Coast',
       customerName: 'Kofi Mensah',
@@ -227,7 +256,10 @@ if (!supabaseEnabled && !fs.existsSync(ORDERS_FILE)) {
           subtotal: 100,
         },
       ],
-      totalAmountGhc: 100,
+      subtotalGhc: 100,
+      processingFeeGhc: 1,
+      feePerShirtGhc: 1,
+      totalAmountGhc: 101,
       currency: 'GHS',
       paystackReference: 'T_FLC_8021_KOF',
       paymentStatus: 'paid',
@@ -367,6 +399,77 @@ function readBasontasFromFile(): any[] {
     console.error('Error reading basontas:', err);
   }
   return [];
+}
+
+function readDeletedBasontaIdsFromFile(): string[] {
+  try {
+    if (fs.existsSync(DELETED_BASONTAS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(DELETED_BASONTAS_FILE, 'utf-8'));
+      if (Array.isArray(data)) return data.filter((id) => typeof id === 'string' && id);
+    }
+  } catch (err) {
+    console.error('Error reading deleted basontas:', err);
+  }
+  return [];
+}
+
+function saveDeletedBasontaIdsToFile(ids: string[]) {
+  const unique = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id)));
+  fs.writeFileSync(DELETED_BASONTAS_FILE, JSON.stringify(unique, null, 2));
+}
+
+async function loadDeletedBasontaIds(): Promise<string[]> {
+  if (supabaseEnabled) {
+    try {
+      return await sbListDeletedBasontaIds();
+    } catch (err) {
+      console.error('Error loading deleted basonta ids from Supabase:', err);
+      return [];
+    }
+  }
+  return readDeletedBasontaIdsFromFile();
+}
+
+/**
+ * Merge code defaults (BASONTA_SHIRTS) with stored list so stale runtime catalogs
+ * (e.g. old 6-entry basontas.json) still expose new default wings. Explicitly
+ * DELETE'd default ids stay hidden via deletedIds.
+ */
+async function getMergedBasontas(options?: { persistHeal?: boolean }): Promise<any[]> {
+  const persistHeal = options?.persistHeal !== false;
+  const stored = supabaseEnabled ? await sbListBasontas() : readBasontasFromFile();
+  const deletedIds = await loadDeletedBasontaIds();
+  const merged = mergeBasontasWithDefaults(
+    Array.isArray(stored) ? stored : [],
+    deletedIds,
+    BASONTA_SHIRTS as any[]
+  );
+  const deduped = dedupeBasontas(merged);
+
+  // Self-heal stale stored catalogs when new defaults were missing
+  if (persistHeal) {
+    const storedIds = new Set((Array.isArray(stored) ? stored : []).map((b: any) => b?.id).filter(Boolean));
+    const addedDefaults = BASONTA_SHIRTS.some((d) => !deletedIds.includes(d.id) && !storedIds.has(d.id));
+    const missingImages = (Array.isArray(stored) ? stored : []).some((b: any) => {
+      if (!b?.id || !BASONTA_CATALOG_IDS.has(b.id)) return false;
+      const def = BASONTA_SHIRTS.find((d) => d.id === b.id);
+      return def && !(b.imageFile && String(b.imageFile).trim());
+    });
+    if (addedDefaults || missingImages) {
+      try {
+        if (supabaseEnabled) {
+          await sbSaveBasontas(deduped);
+        } else {
+          fs.writeFileSync(BASONTAS_FILE, JSON.stringify(deduped, null, 2));
+        }
+        console.log('[Basontas] Healed stored catalog with code defaults');
+      } catch (e) {
+        console.error('[Basontas] Failed to persist healed catalog:', e);
+      }
+    }
+  }
+
+  return deduped;
 }
 
 // Paystack Config Endpoint (Provides callback and webhook URLs for Paystack Dashboard)
@@ -741,14 +844,16 @@ app.post('/api/orders/:id/payment-status', async (req: Request, res: Response) =
 // Basontas Management Endpoints
 app.get('/api/basontas', async (_req: Request, res: Response) => {
   try {
-    const data = supabaseEnabled ? await sbListBasontas() : readBasontasFromFile();
-    if (Array.isArray(data)) {
-      return res.json({ success: true, basontas: dedupeBasontas(data) });
-    }
+    const basontas = await getMergedBasontas({ persistHeal: true });
+    return res.json({ success: true, basontas });
   } catch (err) {
     console.error('Error reading basontas:', err);
   }
-  res.json({ success: true, basontas: [] });
+  // Fallback to code defaults if storage fails
+  res.json({
+    success: true,
+    basontas: dedupeBasontas(mergeBasontasWithDefaults([], [], BASONTA_SHIRTS as any[])),
+  });
 });
 
 app.post('/api/basontas', async (req: Request, res: Response) => {
@@ -758,27 +863,43 @@ app.post('/api/basontas', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Invalid basonta payload' });
     }
 
+    // Re-adding a previously deleted default (or any id) clears the tombstone
+    if (supabaseEnabled) {
+      try {
+        await sbUnmarkBasontaDeleted(basonta.id);
+      } catch (e) {
+        console.error('Failed to clear deleted basonta mark:', e);
+      }
+    } else {
+      const deleted = readDeletedBasontaIdsFromFile().filter((id) => id !== basonta.id);
+      saveDeletedBasontaIdsToFile(deleted);
+    }
+
     if (supabaseEnabled) {
       let list = await sbListBasontas();
+      const deletedIds = await loadDeletedBasontaIds();
       const idx = list.findIndex((b: any) => b.id === basonta.id);
       if (idx >= 0) {
         list[idx] = { ...list[idx], ...basonta };
       } else {
         list.push(basonta);
       }
-      const dedupedList = dedupeBasontas(list);
+      const merged = mergeBasontasWithDefaults(list, deletedIds, BASONTA_SHIRTS as any[]);
+      const dedupedList = dedupeBasontas(merged);
       await sbSaveBasontas(dedupedList);
       return res.json({ success: true, basontas: dedupedList });
     }
 
     let list: any[] = readBasontasFromFile();
+    const deletedIds = readDeletedBasontaIdsFromFile();
     const idx = list.findIndex((b: any) => b.id === basonta.id);
     if (idx >= 0) {
       list[idx] = { ...list[idx], ...basonta };
     } else {
       list.push(basonta);
     }
-    const dedupedList = dedupeBasontas(list);
+    const merged = mergeBasontasWithDefaults(list, deletedIds, BASONTA_SHIRTS as any[]);
+    const dedupedList = dedupeBasontas(merged);
     fs.writeFileSync(BASONTAS_FILE, JSON.stringify(dedupedList, null, 2));
     res.json({ success: true, basontas: dedupedList });
   } catch (err: any) {
@@ -789,17 +910,37 @@ app.post('/api/basontas', async (req: Request, res: Response) => {
 app.delete('/api/basontas/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const isDefaultCatalog = BASONTA_CATALOG_IDS.has(id);
 
     if (supabaseEnabled) {
       await sbDeleteBasonta(id);
+      // Tombstone default catalog ids so merge does not re-inject them
+      if (isDefaultCatalog) {
+        await sbMarkBasontaDeleted(id);
+      }
+      const deletedIds = await loadDeletedBasontaIds();
       const list = await sbListBasontas();
-      return res.json({ success: true, basontas: list });
+      const merged = dedupeBasontas(
+        mergeBasontasWithDefaults(list, deletedIds, BASONTA_SHIRTS as any[])
+      );
+      return res.json({ success: true, basontas: merged });
     }
 
     let list: any[] = readBasontasFromFile();
     const filtered = list.filter((b: any) => b.id !== id);
     fs.writeFileSync(BASONTAS_FILE, JSON.stringify(filtered, null, 2));
-    res.json({ success: true, basontas: filtered });
+    if (isDefaultCatalog) {
+      const deleted = readDeletedBasontaIdsFromFile();
+      if (!deleted.includes(id)) {
+        deleted.push(id);
+        saveDeletedBasontaIdsToFile(deleted);
+      }
+    }
+    const deletedIds = readDeletedBasontaIdsFromFile();
+    const merged = dedupeBasontas(
+      mergeBasontasWithDefaults(filtered, deletedIds, BASONTA_SHIRTS as any[])
+    );
+    res.json({ success: true, basontas: merged });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }

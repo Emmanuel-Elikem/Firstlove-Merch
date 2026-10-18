@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { ColorOption, ShirtColor, ShirtEdition, ShirtSize } from '../types/merch';
-import { COLOR_OPTIONS, BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, SHIRT_EDITIONS, deduplicateById, sanitizeBasontas, unitPriceForShirt, BASONTA_PRICE_GHC } from '../data/merchData';
+import { BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, SHIRT_EDITIONS, deduplicateById, sanitizeBasontas, unitPriceForShirt, BASONTA_PRICE_GHC, isBasontaColor } from '../data/merchData';
 import { ShirtPhotoCard } from './ShirtPhotoCard';
 import { EditionSelector } from './EditionSelector';
 import { 
@@ -58,7 +58,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
   const selectedColor = allAvailableShirts.find((c) => c.id === selectedColorId) || allAvailableShirts[0];
   const selectedEditionData = SHIRT_EDITIONS[selectedEdition];
   const unitPrice = unitPriceForShirt(selectedColor, selectedEdition, selectedColorId);
-  const isBasontaSelected = selectedColor?.category === 'basonta';
+  const isBasontaSelected = isBasontaColor(selectedColor, selectedColorId);
   const currentIndex = allAvailableShirts.findIndex((c) => c.id === selectedColorId);
 
   const handleSelectColorAndScroll = (colorId: ShirtColor) => {
@@ -119,7 +119,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
             {/* Step 2 */}
             <div className="col-span-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-300 text-[11px] sm:text-xs font-semibold">
               <span className="w-4 h-4 rounded-full bg-neutral-800 text-neutral-400 flex items-center justify-center text-[10px] font-black shrink-0">2</span>
-              <span className="hidden sm:inline">GHC 35 / 60</span>
+              <span className="hidden sm:inline">Price</span>
             </div>
 
             {/* Arrow 2 -> 3 */}
@@ -147,7 +147,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
 
           <div className="flex sm:hidden justify-between text-[10px] text-neutral-400 font-medium px-2 mt-2">
             <span>1. Shirt</span>
-            <span>2. Tier</span>
+            <span>2. Price</span>
             <span>3. Size</span>
             <span>4. Pay</span>
           </div>
@@ -327,12 +327,12 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
             )}
           </div>
 
-          {/* Right Column: Step 2 & 3 (Edition, Size, Quantity, Add to Bag) */}
+          {/* Right Column: Step 2 & 3 (Price/Edition, Size, Quantity, Add to Bag) */}
           <div className="lg:col-span-5 flex flex-col gap-6 p-6 rounded-2xl bg-neutral-950/80 border border-neutral-800">
             <div>
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-blue-400">
-                  Configure Shirt (Step 2 & 3)
+                <span className={`text-xs font-bold uppercase tracking-wider ${isBasontaSelected ? 'text-amber-400' : 'text-blue-400'}`}>
+                  {isBasontaSelected ? 'Configure Basonta' : 'Configure Merch (Step 2 & 3)'}
                 </span>
                 <span className="text-xs text-neutral-400 font-mono">
                   {selectedColor.shortName}
@@ -340,22 +340,22 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
               </div>
 
               <h3 className="text-xl font-black text-white mt-1">
-                {selectedEditionData.name}
+                {isBasontaSelected ? selectedColor.name : selectedEditionData.name}
               </h3>
 
               <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-2xl font-mono font-black text-white tabular-nums">
+                <span className={`text-2xl font-mono font-black tabular-nums ${isBasontaSelected ? 'text-amber-300' : 'text-white'}`}>
                   GHC {unitPrice.toFixed(2)}
                 </span>
                 <span className="text-xs text-neutral-500">
                   {isBasontaSelected
-                    ? `per basonta shirt (GHC ${BASONTA_PRICE_GHC})`
-                    : 'per shirt (Cape Coast Collection)'}
+                    ? `per basonta shirt (flat GHC ${BASONTA_PRICE_GHC})`
+                    : 'per shirt (Standard GHC 60 · Heavyweight GHC 100)'}
                 </span>
               </div>
             </div>
 
-            {/* Edition & Size Selector Component */}
+            {/* Edition tiers only for First Love merch; basonta shows flat GHC 35 */}
             <EditionSelector
               selectedEdition={selectedEdition}
               onEditionChange={onSelectEdition}
@@ -364,6 +364,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
               quantity={quantity}
               onQuantityChange={onQuantityChange}
               onOpenSizeGuide={onOpenSizeGuide}
+              isBasonta={isBasontaSelected}
             />
 
             {/* Subtotal Card */}
@@ -372,6 +373,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
                 <span className="text-xs text-neutral-400 block">Subtotal ({quantity} items)</span>
                 <span className="text-xs font-semibold text-neutral-200">
                   {selectedColor.shortName} · Size {selectedSize}
+                  {!isBasontaSelected && ` · ${selectedEditionData.name}`}
                 </span>
               </div>
               <div className="text-xl font-mono font-black text-white tabular-nums">

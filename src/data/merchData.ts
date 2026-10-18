@@ -290,20 +290,124 @@ export const FIRST_LOVE_MERCH_SHIRTS: ColorOption[] = [
 // Alias for backwards-compatibility
 export const FIRST_LOVE_MATCH_SHIRTS = FIRST_LOVE_MERCH_SHIRTS;
 
+/** Known First Love merch colorway ids (edition pricing 60 / 100 applies only to these). */
+export const FIRST_LOVE_MERCH_IDS = new Set(FIRST_LOVE_MERCH_SHIRTS.map((m) => m.id));
+
+/** Known basonta catalog ids (custom uploaded wings are treated as basonta too). */
+export const BASONTA_CATALOG_IDS = new Set(BASONTA_SHIRTS.map((b) => b.id));
+
+/** True when this colorway is a basonta / ministry shirt (flat GHC 35 — never edition tiers). */
+export function isBasontaColor(
+  colorOrId: ColorOption | string | undefined,
+  colorId?: string
+): boolean {
+  const color = typeof colorOrId === 'object' ? colorOrId : undefined;
+  const id = (color?.id || (typeof colorOrId === 'string' ? colorOrId : '') || colorId || '').trim();
+  if (!id || id === 'banner') return false;
+  if (color?.category === 'basonta') return true;
+  if (BASONTA_CATALOG_IDS.has(id)) return true;
+  if (FIRST_LOVE_MERCH_IDS.has(id)) return false;
+  // Custom non-merch ids (admin-added wings) are basonta workforce shirts
+  return true;
+}
+
 /** Unit price: basonta → GHC 35; First Love merch → edition price (60 / 100). */
 export function unitPriceForShirt(
   color: ColorOption | undefined,
   edition: ShirtEdition,
   colorId?: string
 ): number {
-  const id = color?.id || colorId || '';
-  const category = color?.category;
-  const isBasonta =
-    category === 'basonta' ||
-    BASONTA_SHIRTS.some((b) => b.id === id) ||
-    (!FIRST_LOVE_MERCH_SHIRTS.some((m) => m.id === id) && id !== '' && id !== 'banner');
-  if (isBasonta) return BASONTA_PRICE_GHC;
+  if (isBasontaColor(color, colorId)) return BASONTA_PRICE_GHC;
   return SHIRT_EDITIONS[edition]?.priceGhc ?? MERCH_STANDARD_PRICE_GHC;
+}
+
+/** Line-item title for cart / receipt / admin — never shows Standard/Premium for basontas. */
+export function cartItemTitle(
+  item: { color: string; edition: ShirtEdition },
+  colors: ColorOption[] = COLOR_OPTIONS
+): string {
+  const color = colors.find((c) => c.id === item.color);
+  if (isBasontaColor(color, item.color)) {
+    return color?.name || color?.shortName || item.color;
+  }
+  return SHIRT_EDITIONS[item.edition]?.name || item.edition;
+}
+
+/** Edition / product-type label for CSV & admin — "Basonta (GHC 35)" vs Standard/Premium. */
+export function cartItemProductLabel(
+  item: { color: string; edition: ShirtEdition },
+  colors: ColorOption[] = COLOR_OPTIONS
+): string {
+  const color = colors.find((c) => c.id === item.color);
+  if (isBasontaColor(color, item.color)) {
+    return `Basonta (GHC ${BASONTA_PRICE_GHC})`;
+  }
+  return SHIRT_EDITIONS[item.edition]?.name || item.edition;
+}
+
+/**
+ * Merge code-default basontas with a stored/server list.
+ * - Stored entries win for staff edits (name, uploaded imageFile, etc.)
+ * - Default basontas missing from stored are added
+ * - Default imageFile is used when stored imageFile is missing/empty
+ * - deletedIds keeps explicitly DELETE'd default wings hidden
+ * - Staff-added (non-default) wings are always preserved
+ */
+export function mergeBasontasWithDefaults(
+  stored: ColorOption[] | null | undefined,
+  deletedIds: string[] | null | undefined = [],
+  defaults: ColorOption[] = BASONTA_SHIRTS
+): ColorOption[] {
+  const deleted = new Set((deletedIds || []).filter(Boolean));
+  const storedList = Array.isArray(stored) ? stored : [];
+  const byId = new Map<string, ColorOption>();
+
+  for (const d of defaults) {
+    if (!d?.id || deleted.has(d.id)) continue;
+    byId.set(d.id, { ...d, category: 'basonta' });
+  }
+
+  for (const s of storedList) {
+    if (!s?.id) continue;
+    const isDefault = defaults.some((d) => d.id === s.id);
+    if (isDefault && deleted.has(s.id)) continue;
+
+    const base = byId.get(s.id);
+    if (base) {
+      byId.set(s.id, {
+        ...base,
+        ...s,
+        id: s.id,
+        category: 'basonta',
+        imageFile: (s.imageFile && String(s.imageFile).trim()) || base.imageFile,
+        name: s.name || base.name,
+        shortName: s.shortName || base.shortName,
+      });
+    } else {
+      byId.set(s.id, {
+        ...s,
+        category: s.category || 'basonta',
+      });
+    }
+  }
+
+  const result: ColorOption[] = [];
+  const seen = new Set<string>();
+  for (const d of defaults) {
+    if (deleted.has(d.id)) continue;
+    const item = byId.get(d.id);
+    if (item) {
+      result.push(item);
+      seen.add(d.id);
+    }
+  }
+  for (const [id, item] of byId) {
+    if (!seen.has(id)) {
+      result.push(item);
+      seen.add(id);
+    }
+  }
+  return sanitizeBasontas(result);
 }
 
 // Deduplication helper to prevent duplicate key errors across components
@@ -399,6 +503,39 @@ export const AVAILABLE_SIZES: { size: ShirtSize; chestInches: string; lengthInch
 ];
 
 export const INITIAL_ORDERS: CustomerOrder[] = [
+  {
+    id: 'FLC-8020',
+    churchBranch: 'First Love Cape Coast',
+    customerName: 'Ama Boateng',
+    customerPhone: '0244001122',
+    customerEmail: 'ama.boateng@gmail.com',
+    pickupNotes: 'Basonta desk',
+    items: [
+      {
+        id: 'item-0',
+        edition: 'standard',
+        color: 'culinary-stars',
+        size: 'M',
+        quantity: 1,
+        unitPrice: BASONTA_PRICE_GHC,
+        subtotal: BASONTA_PRICE_GHC
+      }
+    ],
+    subtotalGhc: BASONTA_PRICE_GHC,
+    processingFeeGhc: 1,
+    feePerShirtGhc: 1,
+    totalAmountGhc: BASONTA_PRICE_GHC + 1,
+    currency: 'GHS',
+    momoNumber: '0536193423',
+    momoAccountName: 'Emmanuel Nerkwei Nettey',
+    momoReference: 'FLC-8020',
+    momoSenderPhone: '0244001122',
+    paymentStatus: 'paid',
+    collectionStatus: 'pending',
+    channel: 'mobile_money',
+    paidAt: '2026-10-15T13:00:00Z',
+    createdAt: '2026-10-15T12:58:00Z'
+  },
   {
     id: 'FLC-8021',
     churchBranch: 'First Love Cape Coast',

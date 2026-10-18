@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ShirtColor, ShirtEdition, ShirtSize, CartItem, CustomerOrder, PhotoMap, ColorOption } from './types/merch';
-import { COLOR_OPTIONS, BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, SHIRT_EDITIONS, INITIAL_ORDERS, deduplicateById, sanitizeBasontas, unitPriceForShirt } from './data/merchData';
+import { BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, INITIAL_ORDERS, sanitizeBasontas, unitPriceForShirt, mergeBasontasWithDefaults, isBasontaColor } from './data/merchData';
 import { Navbar } from './components/Navbar';
 import { LandscapeCampaignBanner } from './components/LandscapeCampaignBanner';
 import { ColorGallerySection } from './components/ColorGallerySection';
@@ -60,28 +60,32 @@ export default function App() {
   // Navigation
   const [currentView, setCurrentView] = useState<'store' | 'admin'>('store');
 
-  // Basontas List State - Guaranteed single Fragrance Ministry and active wings
+  // Basontas List State — merge localStorage with code defaults so stale cached
+  // lists (e.g. old 6 wings) never hide new default basontas from BASONTA_SHIRTS.
   const [basontas, setBasontas] = useState<ColorOption[]>(() => {
+    let deletedIds: string[] = [];
+    try {
+      const rawDeleted = localStorage.getItem('flc_deleted_basontas');
+      if (rawDeleted) {
+        const parsedDeleted = JSON.parse(rawDeleted);
+        if (Array.isArray(parsedDeleted)) deletedIds = parsedDeleted.filter((id) => typeof id === 'string');
+      }
+    } catch (e) {}
+
+    let stored: ColorOption[] = [];
     try {
       const saved = localStorage.getItem('flc_basontas');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const cleaned = sanitizeBasontas(parsed);
-          if (cleaned.length > 0) {
-            try {
-              localStorage.setItem('flc_basontas', JSON.stringify(cleaned));
-            } catch (e) {}
-            return cleaned;
-          }
-        }
+        if (Array.isArray(parsed)) stored = parsed;
       }
     } catch (e) {}
-    const defaultBasontas = sanitizeBasontas(BASONTA_SHIRTS);
+
+    const merged = mergeBasontasWithDefaults(stored, deletedIds, BASONTA_SHIRTS);
     try {
-      localStorage.setItem('flc_basontas', JSON.stringify(defaultBasontas));
+      localStorage.setItem('flc_basontas', JSON.stringify(merged));
     } catch (e) {}
-    return defaultBasontas;
+    return merged;
   });
 
   // Merch Configurator State (Defaults to Dancing Stars)
@@ -211,9 +215,24 @@ export default function App() {
 
       if (basontasRes.ok) {
         const basontasData = await basontasRes.json();
-        if (basontasData.basontas && Array.isArray(basontasData.basontas) && basontasData.basontas.length > 0) {
-          const sanitized: ColorOption[] = sanitizeBasontas(basontasData.basontas);
-          const finalBasontas: ColorOption[] = sanitized.length > 0 ? sanitized : sanitizeBasontas(BASONTA_SHIRTS);
+        if (basontasData.basontas && Array.isArray(basontasData.basontas)) {
+          let deletedIds: string[] = [];
+          try {
+            const rawDeleted = localStorage.getItem('flc_deleted_basontas');
+            if (rawDeleted) {
+              const parsedDeleted = JSON.parse(rawDeleted);
+              if (Array.isArray(parsedDeleted)) {
+                deletedIds = parsedDeleted.filter((id: unknown) => typeof id === 'string');
+              }
+            }
+          } catch (e) {}
+          // Server already merges defaults; still merge client-side so localStorage
+          // tombstones and any race with stale cache cannot drop new defaults.
+          const finalBasontas = mergeBasontasWithDefaults(
+            basontasData.basontas,
+            deletedIds,
+            BASONTA_SHIRTS
+          );
           setBasontas(finalBasontas);
           try {
             localStorage.setItem('flc_basontas', JSON.stringify(finalBasontas));
@@ -317,16 +336,29 @@ export default function App() {
       description: ''
     };
 
+    // Clearing a tombstone if this id was previously DELETE'd (re-add)
+    let deletedIds: string[] = [];
+    try {
+      const rawDeleted = localStorage.getItem('flc_deleted_basontas');
+      if (rawDeleted) {
+        const parsedDeleted = JSON.parse(rawDeleted);
+        if (Array.isArray(parsedDeleted)) {
+          deletedIds = parsedDeleted.filter((id: unknown) => typeof id === 'string' && id !== slug);
+          localStorage.setItem('flc_deleted_basontas', JSON.stringify(deletedIds));
+        }
+      }
+    } catch (e) {}
+
     setBasontas((prev) => {
       const exists = prev.some((b) => b.id === slug);
       const updated = exists
         ? prev.map((b) => (b.id === slug ? { ...b, ...newBasonta } : b))
         : [...prev, newBasonta];
-      const sanitized = sanitizeBasontas(updated);
+      const merged = mergeBasontasWithDefaults(updated, deletedIds, BASONTA_SHIRTS);
       try {
-        localStorage.setItem('flc_basontas', JSON.stringify(sanitized));
+        localStorage.setItem('flc_basontas', JSON.stringify(merged));
       } catch (e) {}
-      return sanitized;
+      return merged;
     });
 
     try {
@@ -348,13 +380,30 @@ export default function App() {
 
   // Delete Basonta Wing
   const handleDeleteBasonta = async (shirtId: string) => {
+    // Tombstone default catalog ids so merge does not re-inject them after DELETE
+    const isDefault = BASONTA_SHIRTS.some((b) => b.id === shirtId);
+    let deletedIds: string[] = [];
+    try {
+      const rawDeleted = localStorage.getItem('flc_deleted_basontas');
+      if (rawDeleted) {
+        const parsedDeleted = JSON.parse(rawDeleted);
+        if (Array.isArray(parsedDeleted)) {
+          deletedIds = parsedDeleted.filter((id: unknown) => typeof id === 'string');
+        }
+      }
+      if (isDefault && !deletedIds.includes(shirtId)) {
+        deletedIds = [...deletedIds, shirtId];
+      }
+      localStorage.setItem('flc_deleted_basontas', JSON.stringify(deletedIds));
+    } catch (e) {}
+
     setBasontas((prev) => {
       const updated = prev.filter((b) => b.id !== shirtId);
-      const sanitized = sanitizeBasontas(updated);
+      const merged = mergeBasontasWithDefaults(updated, deletedIds, BASONTA_SHIRTS);
       try {
-        localStorage.setItem('flc_basontas', JSON.stringify(sanitized));
+        localStorage.setItem('flc_basontas', JSON.stringify(merged));
       } catch (e) {}
-      return sanitized;
+      return merged;
     });
 
     setCustomPhotos((prev) => {
@@ -417,9 +466,11 @@ export default function App() {
   const handleAddToCart = (openCartImmediately: boolean = false) => {
     const allShirtsForPrice = [...basontas, ...FIRST_LOVE_MERCH_SHIRTS];
     const selectedShirt = allShirtsForPrice.find((c) => c.id === selectedColorId);
-    const currentPrice = unitPriceForShirt(selectedShirt, selectedEdition, selectedColorId);
+    // Basonta never uses Standard/Premium edition pricing — pin edition key for cart merge only
+    const cartEdition = isBasontaColor(selectedShirt, selectedColorId) ? 'standard' : selectedEdition;
+    const currentPrice = unitPriceForShirt(selectedShirt, cartEdition, selectedColorId);
     const existingIndex = cartItems.findIndex(
-      (item) => item.edition === selectedEdition && item.color === selectedColorId && item.size === selectedSize
+      (item) => item.edition === cartEdition && item.color === selectedColorId && item.size === selectedSize
     );
 
     if (existingIndex >= 0) {
@@ -431,7 +482,7 @@ export default function App() {
     } else {
       const newItem: CartItem = {
         id: `cart-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-        edition: selectedEdition,
+        edition: cartEdition,
         color: selectedColorId,
         size: selectedSize,
         quantity,
