@@ -3,7 +3,7 @@ import { CustomerOrder } from '../types/merch';
 import { COLOR_OPTIONS, cartItemTitle, isBasontaColor, BASONTA_PRICE_GHC } from '../data/merchData';
 import { 
   CheckCircle2, X, MessageCircle, Copy, Check, 
-  ExternalLink, Users, Package, Smartphone, Camera 
+  ExternalLink, Users, Camera 
 } from 'lucide-react';
 
 interface OrderReceiptModalProps {
@@ -11,60 +11,97 @@ interface OrderReceiptModalProps {
   onClose: () => void;
 }
 
+/** Official First Love Cape Coast pre-order WhatsApp group (same link as "Join Group"). */
 export const WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/DKOiIKkBd3MG9pvPAdXRIm';
 
-export const getFormattedTicketMessage = (order: CustomerOrder) => {
-  const totalShirts = order.items.reduce((acc, item) => acc + item.quantity, 0);
-  const itemsSubtotal = order.items.reduce((acc, item) => acc + item.subtotal, 0);
-  const fee = order.processingFeeGhc !== undefined 
-    ? order.processingFeeGhc 
-    : (order.totalAmountGhc > itemsSubtotal ? Number((order.totalAmountGhc - itemsSubtotal).toFixed(2)) : totalShirts * 1);
+/** Copy text to clipboard; falls back to a temporary textarea select if Clipboard API fails. */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to textarea fallback
+  }
 
-  const itemsSummary = order.items
-    .map((i, idx) => {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.width = '1px';
+    ta.style.height = '1px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Short WhatsApp group paste message (group invite links cannot prefill text).
+ * Keep compact — typically ≤ 6 lines.
+ */
+export function getShortOrderWhatsAppMessage(order: CustomerOrder): string {
+  const itemsPart = order.items
+    .map((i) => {
       const color = COLOR_OPTIONS.find((c) => c.id === i.color);
-      const basonta = isBasontaColor(color, i.color);
       const title = cartItemTitle(i, COLOR_OPTIONS);
-      const typeLine = basonta
-        ? `   • Type: Basonta (GHC ${BASONTA_PRICE_GHC})`
-        : `   • Color: ${color?.name || color?.shortName || i.color}`;
-      return `${idx + 1}. *${i.quantity}x ${title}*\n${typeLine}\n   • Size: ${i.size}\n   • Amount: GHC ${i.subtotal.toFixed(2)}`;
+      const basonta = isBasontaColor(color, i.color);
+      if (basonta) {
+        return `${i.quantity}x ${title} (${i.size})`;
+      }
+      const colorLabel = color?.shortName || color?.name || i.color;
+      const editionLabel = i.edition === 'premium' ? 'Premium' : 'Standard';
+      return `${i.quantity}x ${colorLabel} ${editionLabel} (${i.size})`;
     })
-    .join('\n\n');
+    .join(', ');
+
+  const ref = order.momoReference || order.id;
+  const total = Number(order.totalAmountGhc).toFixed(2);
 
   return (
-    `*FIRST LOVE CAPE COAST - T-SHIRT PRE-ORDER*\n` +
-    `========================================\n` +
-    `🎟️ *Ticket ID:* ${order.id}\n` +
-    `👤 *Purchaser:* ${order.customerName}\n` +
-    `📱 *Phone:* ${order.customerPhone}\n` +
-    (order.momoSenderPhone && order.momoSenderPhone !== order.customerPhone ? `📲 *MoMo Sender Phone:* ${order.momoSenderPhone}\n` : '') +
-    (order.momoTransactionId ? `🔢 *MoMo Tx ID:* ${order.momoTransactionId}\n` : '') +
-    `\n📦 *ORDERED SHIRT(S) & INFO (${totalShirts} total):*\n` +
-    `${itemsSummary}\n\n` +
-    `💰 *PAYMENT SUMMARY:*\n` +
-    `• Shirts Subtotal: GHC ${itemsSubtotal.toFixed(2)}\n` +
-    `• Charges: GHC ${fee.toFixed(2)} (GHC 1/shirt)\n` +
-    `• *TOTAL PAID VIA MOMO: GHC ${order.totalAmountGhc.toFixed(2)}*\n` +
-    `• Paid To: 0536193423 (Emmanuel Nerkwei Nettey)\n` +
-    `• Reference Used: ${order.momoReference || order.id}\n\n` +
-    `----------------------------------------\n` +
-    `📸 *PLEASE UPLOAD A SCREENSHOT OF YOUR MOMO RECEIPT*\n` +
-    `Please attach your Mobile Money payment receipt screenshot or SMS confirmation right below this message to verify and finalize your pre-order!\n` +
-    `----------------------------------------\n\n` +
-    `📍 *Collection Venue:* First Love Cape Coast In-Church Distribution Desk\n` +
-    `👥 *Official WhatsApp Group:* ${WHATSAPP_GROUP_LINK}`
+    `Hi! Order #${order.id}: ${itemsPart} - GHC ${total}.\n` +
+    `Name: ${order.customerName}, Phone: ${order.customerPhone}.\n` +
+    (ref !== order.id ? `Ref: ${ref}.\n` : '') +
+    `Please I'm sending my MoMo receipt screenshot below.`
   );
+}
+
+/** @deprecated Prefer getShortOrderWhatsAppMessage for WhatsApp group paste. Kept for any long-form needs. */
+export const getFormattedTicketMessage = (order: CustomerOrder) => {
+  return getShortOrderWhatsAppMessage(order);
 };
 
 export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onClose }) => {
   const [copied, setCopied] = useState(false);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
+
+  const shortMessage = order ? getShortOrderWhatsAppMessage(order) : '';
 
   React.useEffect(() => {
-    if (order) {
-      const message = getFormattedTicketMessage(order);
-      navigator.clipboard?.writeText(message).catch(() => {});
-    }
+    if (!order) return;
+    let cancelled = false;
+    (async () => {
+      const ok = await copyTextToClipboard(getShortOrderWhatsAppMessage(order));
+      if (cancelled) return;
+      if (ok) {
+        setCopied(true);
+        setCopyNotice('Order message copied. Join the group, paste it, and send your MoMo receipt screenshot.');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [order?.id]);
 
   if (!order) return null;
@@ -79,27 +116,33 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
   const itemsSubtotal = order.items.reduce((acc, item) => acc + item.subtotal, 0);
   const fee = order.processingFeeGhc !== undefined ? order.processingFeeGhc : totalShirts * 1;
 
-  // Open WhatsApp with pre-filled shirt and order info + screenshot upload prompt
-  const openWhatsAppWithOrderInfo = () => {
-    const message = getFormattedTicketMessage(order);
-    navigator.clipboard?.writeText(message).catch(() => {});
-    setCopied(true);
-    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
-    window.open(waUrl, '_blank');
+  const markCopied = (ok: boolean) => {
+    if (ok) {
+      setCopied(true);
+      setCopyNotice('Order message copied. Join the group, paste it, and send your MoMo receipt screenshot.');
+      setTimeout(() => setCopied(false), 4000);
+    } else {
+      setCopyNotice('Could not auto-copy. Select the message below and copy it manually, then join the group.');
+    }
   };
 
-  const openGroupLink = () => {
-    const message = getFormattedTicketMessage(order);
-    navigator.clipboard?.writeText(message).catch(() => {});
-    setCopied(true);
-    window.open(WHATSAPP_GROUP_LINK, '_blank');
+  /** Primary: copy short message → notice → open the SAME WhatsApp group invite link. */
+  const sendOrderToWhatsAppGroup = async () => {
+    const message = getShortOrderWhatsAppMessage(order);
+    const ok = await copyTextToClipboard(message);
+    markCopied(ok);
+    window.open(WHATSAPP_GROUP_LINK, '_blank', 'noopener,noreferrer');
   };
 
-  const copyOnly = () => {
-    const message = getFormattedTicketMessage(order);
-    navigator.clipboard?.writeText(message).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
+  const openGroupLink = async () => {
+    const ok = await copyTextToClipboard(getShortOrderWhatsAppMessage(order));
+    markCopied(ok);
+    window.open(WHATSAPP_GROUP_LINK, '_blank', 'noopener,noreferrer');
+  };
+
+  const copyOnly = async () => {
+    const ok = await copyTextToClipboard(getShortOrderWhatsAppMessage(order));
+    markCopied(ok);
   };
 
   return (
@@ -108,7 +151,6 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
         className="relative w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl my-auto overflow-hidden flex flex-col max-h-[94vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ONE Single Continuous Scrollable Container - Mobile First, No Static Pinned Bottom Tabs */}
         <div className="overflow-y-auto flex-1">
           {/* Header */}
           <div className="bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-600 p-5 sm:p-6 text-neutral-950 text-center relative">
@@ -134,22 +176,21 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
             </p>
           </div>
 
-          {/* Action Required Alert: Upload Screenshot */}
+          {/* Action Required Alert */}
           <div className="bg-emerald-950/90 border-b border-emerald-800/80 p-4 sm:p-5 flex items-start gap-3 text-xs text-emerald-200">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
               <Camera className="w-4 h-4" />
             </div>
             <div className="space-y-1">
               <strong className="text-white block text-xs sm:text-sm">
-                Next Step: Upload Screenshot of MoMo Receipt
+                Next Step: Paste in WhatsApp Group + MoMo Screenshot
               </strong>
               <p className="text-emerald-300/90 text-[11px] sm:text-xs leading-relaxed">
-                Tap <strong>"Send to WhatsApp"</strong> below. It will open WhatsApp with your full shirt & order info already filled in, with a prompt to attach your MoMo payment receipt screenshot!
+                Tap the green button below. Your short order message is copied, then the official WhatsApp group opens — paste the message and attach your MoMo receipt screenshot.
               </p>
             </div>
           </div>
 
-          {/* Ticket Card Details */}
           <div className="p-4 sm:p-6 space-y-4">
             {/* Ticket Code Box */}
             <div className="p-3.5 sm:p-4 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-between">
@@ -244,7 +285,6 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                 })}
               </div>
 
-              {/* Price Breakdown */}
               <div className="px-3.5 py-2 border-t border-neutral-800/80 bg-neutral-950/60 space-y-1 text-xs">
                 <div className="flex items-center justify-between text-neutral-400">
                   <span>Shirts Subtotal:</span>
@@ -272,11 +312,31 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
               </div>
             </div>
 
-            {/* Copy feedback notification */}
-            {copied && (
-              <div className="p-3 rounded-lg bg-emerald-950/80 border border-emerald-800 text-xs text-emerald-300 flex items-center gap-2 animate-in fade-in duration-150">
-                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Order details copied! Paste it into WhatsApp along with your MoMo screenshot.</span>
+            {/* Short WhatsApp message — visible + Copy message */}
+            <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-500">
+                  WhatsApp Group Message
+                </span>
+                <button
+                  type="button"
+                  onClick={copyOnly}
+                  className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[11px] font-semibold border border-neutral-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copied ? 'Copied!' : 'Copy message'}</span>
+                </button>
+              </div>
+              <pre className="whitespace-pre-wrap break-words text-[11px] sm:text-xs text-neutral-200 font-sans leading-relaxed bg-neutral-900/80 border border-neutral-800/80 rounded-lg p-3 select-all">
+                {shortMessage}
+              </pre>
+            </div>
+
+            {/* Copy / paste notice */}
+            {copyNotice && (
+              <div className="p-3 rounded-lg bg-emerald-950/80 border border-emerald-800 text-xs text-emerald-300 flex items-start gap-2 animate-in fade-in duration-150">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{copyNotice}</span>
               </div>
             )}
 
@@ -284,12 +344,11 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
               Date: {orderDate} · Reference: {order.momoReference || order.id}
             </div>
 
-            {/* ACTION BUTTONS (In natural scroll flow - No Static Tabs) */}
             <div className="pt-2 space-y-2 pb-4">
-              {/* PRIMARY ACTION: Open WhatsApp with prefilled order info & prompt to upload screenshot */}
+              {/* PRIMARY: copy short message + open SAME group invite link */}
               <button
                 type="button"
-                onClick={openWhatsAppWithOrderInfo}
+                onClick={sendOrderToWhatsAppGroup}
                 className="w-full py-4 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-emerald-600/30 cursor-pointer min-h-[48px]"
               >
                 <MessageCircle className="w-4 h-4 shrink-0" />
@@ -297,7 +356,6 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                 <ExternalLink className="w-3.5 h-3.5 opacity-80 shrink-0" />
               </button>
 
-              {/* Secondary Actions */}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -314,7 +372,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                   className="py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700/60 flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[42px]"
                 >
                   {copied ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <Copy className="w-3.5 h-3.5 shrink-0" />}
-                  <span>{copied ? 'Copied!' : 'Copy Info'}</span>
+                  <span>{copied ? 'Copied!' : 'Copy Message'}</span>
                 </button>
               </div>
 

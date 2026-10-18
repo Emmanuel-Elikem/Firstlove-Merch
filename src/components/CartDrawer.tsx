@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CartItem, CustomerOrder } from '../types/merch';
 import { COLOR_OPTIONS, cartItemTitle, isBasontaColor, BASONTA_PRICE_GHC } from '../data/merchData';
-import { getFormattedTicketMessage, WHATSAPP_GROUP_LINK } from './OrderReceiptModal';
+import { getShortOrderWhatsAppMessage, copyTextToClipboard } from './OrderReceiptModal';
 import { 
   X, Trash2, ArrowRight, ShieldCheck, Phone, User, 
   AlertCircle, Copy, Check, Smartphone, 
@@ -134,7 +134,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         createdAt: new Date().toISOString(),
       };
 
-      // 1. Save to server backend
+      // 1. Save to server backend (must succeed/attempt before opening WhatsApp flow)
       try {
         await fetch('/api/orders', {
           method: 'POST',
@@ -145,15 +145,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         console.warn('Backend order save network warning:', err);
       }
 
-      // 2. Prepare ticket text and copy automatically to clipboard
-      const ticketMessage = getFormattedTicketMessage(completedOrder);
-      try {
-        await navigator.clipboard.writeText(ticketMessage);
-      } catch (clipErr) {
-        console.warn('Clipboard write notice:', clipErr);
-      }
+      // 2. Copy short WhatsApp group paste message (receipt modal opens group link)
+      const ticketMessage = getShortOrderWhatsAppMessage(completedOrder);
+      await copyTextToClipboard(ticketMessage);
 
-      // 3. Clear cart and notify app
+      // 3. Clear cart and notify app → receipt modal shows message + group CTA
       setIsSubmitting(false);
       onClearCart();
       onClose();
@@ -494,7 +490,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <div className="space-y-0.5">
                     <strong className="text-white block">WhatsApp Group Screenshot Confirmation</strong>
                     <span className="text-emerald-300/90 text-[11px] leading-relaxed">
-                      After tapping submit, your official ticket will be copied and you will post it along with your MoMo payment screenshot in the WhatsApp Group.
+                      After submit, a short order message is copied. On the next screen, join the WhatsApp group, paste the message, and attach your MoMo payment screenshot.
                     </span>
                   </div>
                 </div>
