@@ -80,7 +80,17 @@ export const BasontaUploadModal: React.FC<BasontaUploadModalProps> = ({
             {cleanList.map((b) => {
               const photoSrc = customPhotos[b.id] || b.imageFile;
               const hasPhoto = Boolean(photoSrc);
-              const isDefaultWing = ['dancing-stars', 'film-stars', 'fragrance-ministry', 'lovelets', 'ushers'].includes(b.id);
+              const isDefaultWing = [
+                'dancing-stars',
+                'film-stars',
+                'fragrance-ministry',
+                'lovelets',
+                'ushers',
+                'hearing-and-seeing',
+                'culinary-stars',
+                'worship-stars',
+                'sheep-seeking',
+              ].includes(b.id);
 
               return (
                 <div

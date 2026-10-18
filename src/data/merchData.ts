@@ -1,13 +1,21 @@
-import { ColorOption, ShirtOption, ShirtSize, CustomerOrder } from '../types/merch';
+import { ColorOption, ShirtOption, ShirtSize, CustomerOrder, ShirtEdition } from '../types/merch';
 
 export const LANDSCAPE_HERO_IMAGE = '/images/banner.png';
+
+/** Basonta (ministry / workforce) shirts — flat price per shirt */
+export const BASONTA_PRICE_GHC = 35;
+/** First Love merch — standard edition */
+export const MERCH_STANDARD_PRICE_GHC = 60;
+/** First Love merch — premium / heavyweight edition */
+export const MERCH_PREMIUM_PRICE_GHC = 100;
+export const FEE_PER_SHIRT_GHC = 1;
 
 export const SHIRT_EDITIONS: Record<'standard' | 'premium', ShirtOption> = {
   standard: {
     edition: 'standard',
     name: 'Standard T-Shirt',
     tagline: 'Classic Church Wear',
-    priceGhc: 60,
+    priceGhc: MERCH_STANDARD_PRICE_GHC,
     fabric: '100% Breathable Ringspun Cotton (180 GSM)',
     fit: 'Regular Comfort Fit',
     features: [
@@ -21,7 +29,7 @@ export const SHIRT_EDITIONS: Record<'standard' | 'premium', ShirtOption> = {
     edition: 'premium',
     name: 'Premium Heavyweight Oversized',
     tagline: 'Luxury Streetwear Drop-Shoulder',
-    priceGhc: 100,
+    priceGhc: MERCH_PREMIUM_PRICE_GHC,
     fabric: 'Ultra-Heavy Combed Cotton (240+ GSM)',
     fit: 'Relaxed Drop-Shoulder Oversized Cut',
     features: [
@@ -55,11 +63,11 @@ export const BASONTA_SHIRTS: ColorOption[] = [
     name: 'Film Stars',
     shortName: 'Film Stars',
     category: 'basonta',
-    bodyColor: '#18181B',
-    hex: '#18181B',
-    accentHex: '#FFFFFF',
+    bodyColor: '#5C2E1A',
+    hex: '#5C2E1A',
+    accentHex: '#0EA5E9',
     textColor: '#FFFFFF',
-    printColors: 'Custom Print',
+    printColors: 'Cyan & White',
     imageFile: '/images/film-stars.png',
     frontText: 'FILM STARS',
     backText: 'FIRST LOVE CHURCH',
@@ -116,8 +124,8 @@ export const BASONTA_SHIRTS: ColorOption[] = [
   },
   {
     id: 'hearing-and-seeing',
-    name: 'Hearing and Seeing',
-    shortName: 'Hearing & Seeing',
+    name: 'Projection',
+    shortName: 'Projection',
     category: 'basonta',
     bodyColor: '#111215',
     hex: '#111215',
@@ -126,9 +134,57 @@ export const BASONTA_SHIRTS: ColorOption[] = [
     printColors: 'Orange & White',
     imageFile: '/images/hearing-and-seeing.jpg',
     frontText: 'PROJECTION',
-    backText: 'HEARING & SEEING · ROMANS 10:17',
+    backText: 'HEARING SEEING · ROMANS 10:17',
     tagline: 'Projection & Media Crew',
     description: 'Official projection and media workforce t-shirt featuring front chest PROJECTION lettering and multi-icon back graphics.'
+  },
+  {
+    id: 'culinary-stars',
+    name: 'Culinary Stars',
+    shortName: 'Culinary Stars',
+    category: 'basonta',
+    bodyColor: '#F8FAFC',
+    hex: '#F8FAFC',
+    accentHex: '#E11D1B',
+    textColor: '#E11D1B',
+    printColors: 'Red & Black',
+    imageFile: '/images/culinary-stars.png',
+    frontText: 'CULINARY STARS',
+    backText: 'FIRST LOVE CHURCH',
+    tagline: '',
+    description: ''
+  },
+  {
+    id: 'worship-stars',
+    name: 'Worship Stars',
+    shortName: 'Worship Stars',
+    category: 'basonta',
+    bodyColor: '#14532D',
+    hex: '#14532D',
+    accentHex: '#0EA5E9',
+    textColor: '#FFFFFF',
+    printColors: 'Cyan & White',
+    imageFile: '/images/worship-stars.png',
+    frontText: 'WORSHIP STARS',
+    backText: 'FIRST LOVE CHURCH',
+    tagline: '',
+    description: ''
+  },
+  {
+    id: 'sheep-seeking',
+    name: 'Sheep Seeking',
+    shortName: 'Sheep Seeking',
+    category: 'basonta',
+    bodyColor: '#C2610C',
+    hex: '#C2610C',
+    accentHex: '#0EA5E9',
+    textColor: '#FFFFFF',
+    printColors: 'Cyan & White',
+    imageFile: '/images/sheep-seeking.png',
+    frontText: 'SHEEP SEEKING',
+    backText: 'FIRST LOVE CHURCH',
+    tagline: '',
+    description: ''
   }
 ];
 
@@ -234,6 +290,22 @@ export const FIRST_LOVE_MERCH_SHIRTS: ColorOption[] = [
 // Alias for backwards-compatibility
 export const FIRST_LOVE_MATCH_SHIRTS = FIRST_LOVE_MERCH_SHIRTS;
 
+/** Unit price: basonta → GHC 35; First Love merch → edition price (60 / 100). */
+export function unitPriceForShirt(
+  color: ColorOption | undefined,
+  edition: ShirtEdition,
+  colorId?: string
+): number {
+  const id = color?.id || colorId || '';
+  const category = color?.category;
+  const isBasonta =
+    category === 'basonta' ||
+    BASONTA_SHIRTS.some((b) => b.id === id) ||
+    (!FIRST_LOVE_MERCH_SHIRTS.some((m) => m.id === id) && id !== '' && id !== 'banner');
+  if (isBasonta) return BASONTA_PRICE_GHC;
+  return SHIRT_EDITIONS[edition]?.priceGhc ?? MERCH_STANDARD_PRICE_GHC;
+}
+
 // Deduplication helper to prevent duplicate key errors across components
 export function deduplicateById<T extends { id: string }>(items: T[]): T[] {
   const seen = new Set<string>();
@@ -292,14 +364,14 @@ export function sanitizeBasontas(items: ColorOption[]): ColorOption[] {
     }
 
     if (normalized.id === 'hearing-and-seeing') {
-      normalized.name = 'Hearing and Seeing';
-      normalized.shortName = 'Hearing & Seeing';
+      normalized.name = 'Projection';
+      normalized.shortName = 'Projection';
       normalized.bodyColor = '#111215';
       normalized.hex = '#111215';
-      normalized.accentHex = '#EA580C';
+      normalized.accentHex = normalized.accentHex || '#EA580C';
       normalized.imageFile = normalized.imageFile || '/images/hearing-and-seeing.jpg';
       normalized.frontText = 'PROJECTION';
-      normalized.backText = 'HEARING & SEEING · ROMANS 10:17';
+      normalized.backText = normalized.backText || 'HEARING SEEING · ROMANS 10:17';
     }
 
     if (!seenIds.has(normalized.id)) {

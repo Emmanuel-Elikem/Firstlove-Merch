@@ -5,6 +5,98 @@ import fs from 'fs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import {
+  supabaseEnabled,
+  listOrders as sbListOrders,
+  getOrder as sbGetOrder,
+  upsertOrder as sbUpsertOrder,
+  patchOrder as sbPatchOrder,
+  findOrderByPaystackReference as sbFindByPaystackRef,
+  findOrderByMomoReference as sbFindByMomoRef,
+  listBasontas as sbListBasontas,
+  saveBasontas as sbSaveBasontas,
+  upsertBasonta as sbUpsertBasonta,
+  deleteBasonta as sbDeleteBasonta,
+  uploadPhoto as sbUploadPhoto,
+  listPhotos as sbListPhotos,
+} from './supabase-store.ts';
+
+/** Pricing: basonta shirts GHC 35; First Love merch GHC 60 (standard) / 100 (premium). Server recomputes — does not trust client unit prices. */
+const BASONTA_PRICE_GHC = 35;
+const MERCH_STANDARD_PRICE_GHC = 60;
+const MERCH_PREMIUM_PRICE_GHC = 100;
+const FEE_PER_SHIRT_GHC = 1;
+const FIRST_LOVE_COLOR_IDS = new Set([
+  'black-cyan',
+  'blue-yellow',
+  'white-purple',
+  'purple-yellow',
+  'white-teal',
+  'sand-green',
+]);
+
+function unitPriceForItem(colorId: string, edition: string, basontaIds: Set<string>): number {
+  // Basonta / ministry shirts (known catalog or custom non-merch ids) → GHC 35
+  if (basontaIds.has(colorId) || !FIRST_LOVE_COLOR_IDS.has(colorId)) {
+    return BASONTA_PRICE_GHC;
+  }
+  // First Love merch: standard GHC 60, premium/heavyweight GHC 100
+  if (edition === 'premium') return MERCH_PREMIUM_PRICE_GHC;
+  return MERCH_STANDARD_PRICE_GHC;
+}
+
+async function loadBasontaIdSet(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  try {
+    const list = supabaseEnabled ? await sbListBasontas() : readBasontasFromFile();
+    for (const b of list || []) {
+      if (b?.id) ids.add(b.id);
+    }
+  } catch {
+    // ignore
+  }
+  // Always include catalog defaults even if file empty
+  for (const id of [
+    'dancing-stars',
+    'film-stars',
+    'fragrance-ministry',
+    'lovelets',
+    'ushers',
+    'hearing-and-seeing',
+    'culinary-stars',
+    'worship-stars',
+    'sheep-seeking',
+  ]) {
+    ids.add(id);
+  }
+  return ids;
+}
+
+function normalizeOrderPricing(order: any, basontaIds: Set<string>) {
+  if (!Array.isArray(order.items)) {
+    throw new Error('Invalid order items');
+  }
+  let subtotalGhc = 0;
+  let shirtCount = 0;
+  const items = order.items.map((item: any) => {
+    const qty = Math.max(1, Number(item.quantity) || 1);
+    const unitPrice = unitPriceForItem(String(item.color || ''), String(item.edition || 'standard'), basontaIds);
+    const subtotal = unitPrice * qty;
+    subtotalGhc += subtotal;
+    shirtCount += qty;
+    return { ...item, quantity: qty, unitPrice, subtotal };
+  });
+  const processingFeeGhc = shirtCount * FEE_PER_SHIRT_GHC;
+  const totalAmountGhc = subtotalGhc + processingFeeGhc;
+  return {
+    ...order,
+    items,
+    subtotalGhc,
+    processingFeeGhc,
+    feePerShirtGhc: FEE_PER_SHIRT_GHC,
+    totalAmountGhc,
+  };
+}
 
 dotenv.config();
 
@@ -17,15 +109,27 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_test_7ab4632845aa9862bfcac7ed10351a25acde9964';
-const PAYSTACK_PUBLIC_KEY = process.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_37e05050fff4f47cfd468ebb25b1b8de04139759';
+// Paystack keys: env only — no hard-coded fallbacks
+const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || '';
+const PAYSTACK_PUBLIC_KEY = process.env.VITE_PAYSTACK_PUBLIC_KEY || '';
 
-// Persistent storage setup
+function paystackNotConfigured(res: Response, asJson = true) {
+  const message =
+    'Paystack is not configured. Set PAYSTACK_SECRET_KEY (and VITE_PAYSTACK_PUBLIC_KEY) in the server environment.';
+  if (asJson) {
+    res.status(503).json({ success: false, message });
+  } else {
+    res.status(503).send(message);
+  }
+}
+
+// Persistent storage setup (local file fallback when Supabase is not configured)
 const DATA_DIR = path.resolve(__dirname, 'data');
 const ORDERS_FILE = path.resolve(DATA_DIR, 'orders.json');
 const PHOTOS_FILE = path.resolve(DATA_DIR, 'photos.json');
 const PUBLIC_DIR = path.resolve(__dirname, 'public');
 const IMAGES_DIR = path.resolve(PUBLIC_DIR, 'images');
+const BASONTAS_FILE = path.resolve(DATA_DIR, 'basontas.json');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -34,7 +138,7 @@ if (!fs.existsSync(IMAGES_DIR)) {
   fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
 
-// Ensure images from photos.json are written to public/images/ on startup
+// Ensure images from photos.json are written to public/images/ on startup (file mode only)
 function syncPhotosToDisk() {
   try {
     if (fs.existsSync(PHOTOS_FILE)) {
@@ -57,18 +161,32 @@ function syncPhotosToDisk() {
     console.error('Error syncing photos to disk:', err);
   }
 }
-syncPhotosToDisk();
+if (!supabaseEnabled) {
+  syncPhotosToDisk();
+}
 
-function getStoredPhotoUrls(): Record<string, string> {
-  const result: Record<string, string> = {
-    'banner': '/images/banner.png',
-    'black-cyan': '/images/black-cyan.jpg',
-    'blue-yellow': '/images/blue-yellow.png',
-    'white-purple': '/images/white-purple.png',
-    'purple-yellow': '/images/purple-yellow.png',
-    'white-teal': '/images/white-teal.png',
-    'sand-green': '/images/sand-green.png'
-  };
+const DEFAULT_PHOTO_URLS: Record<string, string> = {
+  banner: '/images/banner.png',
+  'black-cyan': '/images/black-cyan.jpg',
+  'blue-yellow': '/images/blue-yellow.png',
+  'white-purple': '/images/white-purple.png',
+  'purple-yellow': '/images/purple-yellow.png',
+  'white-teal': '/images/white-teal.png',
+  'sand-green': '/images/sand-green.png',
+};
+
+async function getStoredPhotoUrls(): Promise<Record<string, string>> {
+  const result: Record<string, string> = { ...DEFAULT_PHOTO_URLS };
+
+  if (supabaseEnabled) {
+    try {
+      const remote = await sbListPhotos();
+      Object.assign(result, remote);
+    } catch (err) {
+      console.error('Error listing Supabase photos:', err);
+    }
+    return result;
+  }
 
   // Check if custom uploaded files exist in public/images
   try {
@@ -88,8 +206,8 @@ function getStoredPhotoUrls(): Record<string, string> {
   return result;
 }
 
-// Initial orders seed if file doesn't exist
-if (!fs.existsSync(ORDERS_FILE)) {
+// Initial orders seed if file doesn't exist — only when file fallback is active
+if (!supabaseEnabled && !fs.existsSync(ORDERS_FILE)) {
   const initialOrders = [
     {
       id: 'FLC-8021',
@@ -106,8 +224,8 @@ if (!fs.existsSync(ORDERS_FILE)) {
           size: 'L',
           quantity: 1,
           unitPrice: 100,
-          subtotal: 100
-        }
+          subtotal: 100,
+        },
       ],
       totalAmountGhc: 100,
       currency: 'GHS',
@@ -116,7 +234,7 @@ if (!fs.existsSync(ORDERS_FILE)) {
       collectionStatus: 'ready_for_pickup',
       channel: 'mobile_money',
       paidAt: '2026-10-15T14:30:00Z',
-      createdAt: '2026-10-15T14:28:10Z'
+      createdAt: '2026-10-15T14:28:10Z',
     },
     {
       id: 'FLC-8022',
@@ -133,7 +251,7 @@ if (!fs.existsSync(ORDERS_FILE)) {
           size: 'M',
           quantity: 2,
           unitPrice: 60,
-          subtotal: 120
+          subtotal: 120,
         },
         {
           id: 'item-3',
@@ -142,8 +260,8 @@ if (!fs.existsSync(ORDERS_FILE)) {
           size: 'XL',
           quantity: 1,
           unitPrice: 100,
-          subtotal: 100
-        }
+          subtotal: 100,
+        },
       ],
       totalAmountGhc: 220,
       currency: 'GHS',
@@ -152,7 +270,7 @@ if (!fs.existsSync(ORDERS_FILE)) {
       collectionStatus: 'collected',
       channel: 'mobile_money',
       paidAt: '2026-10-15T15:10:00Z',
-      createdAt: '2026-10-15T15:08:45Z'
+      createdAt: '2026-10-15T15:08:45Z',
     },
     {
       id: 'FLC-8023',
@@ -169,7 +287,7 @@ if (!fs.existsSync(ORDERS_FILE)) {
           size: 'XL',
           quantity: 1,
           unitPrice: 100,
-          subtotal: 100
+          subtotal: 100,
         },
         {
           id: 'item-5',
@@ -178,8 +296,8 @@ if (!fs.existsSync(ORDERS_FILE)) {
           size: 'M',
           quantity: 1,
           unitPrice: 60,
-          subtotal: 60
-        }
+          subtotal: 60,
+        },
       ],
       totalAmountGhc: 160,
       currency: 'GHS',
@@ -188,13 +306,13 @@ if (!fs.existsSync(ORDERS_FILE)) {
       collectionStatus: 'pending',
       channel: 'card',
       paidAt: '2026-10-15T16:02:00Z',
-      createdAt: '2026-10-15T15:59:12Z'
-    }
+      createdAt: '2026-10-15T15:59:12Z',
+    },
   ];
   fs.writeFileSync(ORDERS_FILE, JSON.stringify(initialOrders, null, 2));
 }
 
-function getStoredOrders(): any[] {
+function getStoredOrdersFromFile(): any[] {
   try {
     if (fs.existsSync(ORDERS_FILE)) {
       const data = fs.readFileSync(ORDERS_FILE, 'utf-8');
@@ -206,12 +324,49 @@ function getStoredOrders(): any[] {
   return [];
 }
 
-function saveOrders(orders: any[]) {
+function saveOrdersToFile(orders: any[]) {
   try {
     fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2));
   } catch (err) {
     console.error('Error saving orders file:', err);
   }
+}
+
+async function getStoredOrders(): Promise<any[]> {
+  if (supabaseEnabled) {
+    return sbListOrders();
+  }
+  return getStoredOrdersFromFile();
+}
+
+function dedupeBasontas(data: any[]): any[] {
+  const seen = new Set<string>();
+  let fragranceSeen = false;
+  return data.filter((item: any) => {
+    if (!item || !item.id || seen.has(item.id)) return false;
+    // Filter out duplicate fragrance entries like fragrance-stars or generic fragrance
+    if (item.id === 'fragrance-stars' || (item.id === 'fragrance' && seen.has('fragrance-ministry'))) {
+      return false;
+    }
+    if (item.id.includes('fragrance') || (item.name && item.name.toLowerCase().includes('fragrance'))) {
+      if (fragranceSeen) return false;
+      fragranceSeen = true;
+    }
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function readBasontasFromFile(): any[] {
+  try {
+    if (fs.existsSync(BASONTAS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(BASONTAS_FILE, 'utf-8'));
+      if (Array.isArray(data)) return data;
+    }
+  } catch (err) {
+    console.error('Error reading basontas:', err);
+  }
+  return [];
 }
 
 // Paystack Config Endpoint (Provides callback and webhook URLs for Paystack Dashboard)
@@ -228,7 +383,7 @@ app.get('/api/paystack-config', (req: Request, res: Response) => {
     paymentMode: isLive ? 'live' : 'test',
     callbackUrl: `${baseUrl}/payment-callback`,
     webhookUrl: `${baseUrl}/api/paystack-webhook`,
-    appUrl: baseUrl
+    appUrl: baseUrl,
   });
 });
 
@@ -245,6 +400,10 @@ app.get('/payment-callback', (req: Request, res: Response) => {
 // Paystack Initialize Payment Endpoint (Supports popup & standard redirect)
 app.post('/api/initialize-payment', async (req: Request, res: Response) => {
   try {
+    if (!PAYSTACK_SECRET_KEY) {
+      return paystackNotConfigured(res);
+    }
+
     const { email, amountGhc, reference, metadata } = req.body;
 
     if (!email || !amountGhc || !reference) {
@@ -270,39 +429,41 @@ app.post('/api/initialize-payment', async (req: Request, res: Response) => {
           {
             display_name: 'Customer Name',
             variable_name: 'customer_name',
-            value: metadata?.customerName || 'First Love Member'
+            value: metadata?.customerName || 'First Love Member',
           },
           {
             display_name: 'Phone Number',
             variable_name: 'customer_phone',
-            value: metadata?.customerPhone || ''
+            value: metadata?.customerPhone || '',
           },
           {
             display_name: 'Items Subtotal',
             variable_name: 'subtotal_ghc',
-            value: metadata?.subtotalGhc ? `GHC ${Number(metadata.subtotalGhc).toFixed(2)}` : ''
+            value: metadata?.subtotalGhc ? `GHC ${Number(metadata.subtotalGhc).toFixed(2)}` : '',
           },
           {
             display_name: 'Processing Fee (GHC 2/shirt)',
             variable_name: 'processing_fee_ghc',
-            value: metadata?.processingFeeGhc ? `GHC ${Number(metadata.processingFeeGhc).toFixed(2)}` : 'GHC 2.00 / shirt'
+            value: metadata?.processingFeeGhc
+              ? `GHC ${Number(metadata.processingFeeGhc).toFixed(2)}`
+              : 'GHC 2.00 / shirt',
           },
           {
             display_name: 'Total Paid',
             variable_name: 'total_paid_ghc',
-            value: `GHC ${Number(amountGhc).toFixed(2)}`
-          }
-        ]
-      }
+            value: `GHC ${Number(amountGhc).toFixed(2)}`,
+          },
+        ],
+      },
     };
 
     const response = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
@@ -311,13 +472,13 @@ app.post('/api/initialize-payment', async (req: Request, res: Response) => {
       return res.status(response.status).json({
         success: false,
         message: data.message || 'Paystack initialization failed',
-        data
+        data,
       });
     }
 
     res.json({
       success: true,
-      data: data.data
+      data: data.data,
     });
   } catch (error: any) {
     console.error('Initialize payment error:', error);
@@ -328,6 +489,10 @@ app.post('/api/initialize-payment', async (req: Request, res: Response) => {
 // Paystack Verify Payment Endpoint
 app.get('/api/verify-payment/:reference', async (req: Request, res: Response) => {
   try {
+    if (!PAYSTACK_SECRET_KEY) {
+      return paystackNotConfigured(res);
+    }
+
     const { reference } = req.params;
 
     if (!reference) {
@@ -337,8 +502,8 @@ app.get('/api/verify-payment/:reference', async (req: Request, res: Response) =>
     const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`
-      }
+        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      },
     });
 
     const data = await response.json();
@@ -347,7 +512,7 @@ app.get('/api/verify-payment/:reference', async (req: Request, res: Response) =>
       return res.status(response.status).json({
         success: false,
         message: data.message || 'Verification failed',
-        data
+        data,
       });
     }
 
@@ -356,14 +521,25 @@ app.get('/api/verify-payment/:reference', async (req: Request, res: Response) =>
 
     // Update order in persistent store if found
     if (isSuccess) {
-      const orders = getStoredOrders();
-      const existingOrderIndex = orders.findIndex((o: any) => o.paystackReference === reference);
+      if (supabaseEnabled) {
+        const existing = await sbFindByPaystackRef(reference);
+        if (existing) {
+          await sbPatchOrder(existing.id, {
+            paymentStatus: 'paid',
+            channel: transaction.channel,
+            paidAt: transaction.paid_at || new Date().toISOString(),
+          });
+        }
+      } else {
+        const orders = getStoredOrdersFromFile();
+        const existingOrderIndex = orders.findIndex((o: any) => o.paystackReference === reference);
 
-      if (existingOrderIndex >= 0) {
-        orders[existingOrderIndex].paymentStatus = 'paid';
-        orders[existingOrderIndex].channel = transaction.channel;
-        orders[existingOrderIndex].paidAt = transaction.paid_at || new Date().toISOString();
-        saveOrders(orders);
+        if (existingOrderIndex >= 0) {
+          orders[existingOrderIndex].paymentStatus = 'paid';
+          orders[existingOrderIndex].channel = transaction.channel;
+          orders[existingOrderIndex].paidAt = transaction.paid_at || new Date().toISOString();
+          saveOrdersToFile(orders);
+        }
       }
     }
 
@@ -377,8 +553,8 @@ app.get('/api/verify-payment/:reference', async (req: Request, res: Response) =>
         status: transaction.status,
         channel: transaction.channel,
         paidAt: transaction.paid_at,
-        customer: transaction.customer
-      }
+        customer: transaction.customer,
+      },
     });
   } catch (error: any) {
     console.error('Verify payment error:', error);
@@ -387,8 +563,12 @@ app.get('/api/verify-payment/:reference', async (req: Request, res: Response) =>
 });
 
 // Paystack Webhook Handler
-app.post('/api/paystack-webhook', (req: Request, res: Response) => {
+app.post('/api/paystack-webhook', async (req: Request, res: Response) => {
   try {
+    if (!PAYSTACK_SECRET_KEY) {
+      return paystackNotConfigured(res, false);
+    }
+
     const hash = crypto
       .createHmac('sha512', PAYSTACK_SECRET_KEY)
       .update(JSON.stringify(req.body))
@@ -405,14 +585,26 @@ app.post('/api/paystack-webhook', (req: Request, res: Response) => {
     if (event.event === 'charge.success') {
       const data = event.data;
       const reference = data.reference;
-      const orders = getStoredOrders();
-      const order = orders.find((o: any) => o.paystackReference === reference);
 
-      if (order) {
-        order.paymentStatus = 'paid';
-        order.channel = data.channel;
-        order.paidAt = data.paid_at || new Date().toISOString();
-        saveOrders(orders);
+      if (supabaseEnabled) {
+        const order = await sbFindByPaystackRef(reference);
+        if (order) {
+          await sbPatchOrder(order.id, {
+            paymentStatus: 'paid',
+            channel: data.channel,
+            paidAt: data.paid_at || new Date().toISOString(),
+          });
+        }
+      } else {
+        const orders = getStoredOrdersFromFile();
+        const order = orders.find((o: any) => o.paystackReference === reference);
+
+        if (order) {
+          order.paymentStatus = 'paid';
+          order.channel = data.channel;
+          order.paidAt = data.paid_at || new Date().toISOString();
+          saveOrdersToFile(orders);
+        }
       }
     }
 
@@ -424,109 +616,134 @@ app.post('/api/paystack-webhook', (req: Request, res: Response) => {
 });
 
 // Orders Management Endpoints
-app.get('/api/orders', (_req: Request, res: Response) => {
-  const orders = getStoredOrders().map((o: any) => ({
-    ...o,
-    paymentMode: o.paymentMode || 'live',
-  }));
-  res.json({ success: true, orders });
+app.get('/api/orders', async (_req: Request, res: Response) => {
+  try {
+    const orders = (await getStoredOrders()).map((o: any) => ({
+      ...o,
+      paymentMode: o.paymentMode || 'live',
+    }));
+    res.json({ success: true, orders });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
-app.post('/api/orders', (req: Request, res: Response) => {
+app.post('/api/orders', async (req: Request, res: Response) => {
   try {
-    const newOrder = req.body;
-    if (!newOrder.id || !newOrder.items || !newOrder.totalAmountGhc) {
+    const incoming = req.body;
+    if (!incoming.id || !incoming.items) {
       return res.status(400).json({ success: false, message: 'Invalid order payload' });
     }
 
-    if (!newOrder.paymentMode) {
-      newOrder.paymentMode = 'live';
+    if (!incoming.paymentMode) {
+      incoming.paymentMode = 'live';
     }
 
-    const orders = getStoredOrders();
-    const existingIndex = orders.findIndex((o: any) => o.id === newOrder.id || (newOrder.momoReference && o.momoReference === newOrder.momoReference));
+    const basontaIds = await loadBasontaIdSet();
+    const newOrder = normalizeOrderPricing(incoming, basontaIds);
+
+    if (supabaseEnabled) {
+      const saved = await sbUpsertOrder(newOrder);
+      return res.json({ success: true, order: saved });
+    }
+
+    const orders = getStoredOrdersFromFile();
+    const existingIndex = orders.findIndex(
+      (o: any) => o.id === newOrder.id || (newOrder.momoReference && o.momoReference === newOrder.momoReference)
+    );
 
     if (existingIndex >= 0) {
-      orders[existingIndex] = { ...orders[existingIndex], ...newOrder };
-    } else {
-      orders.unshift(newOrder);
+      orders[existingIndex] = { ...orders[existingIndex], ...newOrder, id: orders[existingIndex].id };
+      saveOrdersToFile(orders);
+      return res.json({ success: true, order: orders[existingIndex] });
     }
 
-    saveOrders(orders);
+    orders.unshift(newOrder);
+    saveOrdersToFile(orders);
     res.json({ success: true, order: newOrder });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-app.post('/api/orders/:id/status', (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { collectionStatus } = req.body;
+app.post('/api/orders/:id/status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { collectionStatus } = req.body;
 
-  if (!['pending', 'ready_for_pickup', 'collected'].includes(collectionStatus)) {
-    return res.status(400).json({ success: false, message: 'Invalid collection status' });
+    if (!['pending', 'ready_for_pickup', 'collected'].includes(collectionStatus)) {
+      return res.status(400).json({ success: false, message: 'Invalid collection status' });
+    }
+
+    if (supabaseEnabled) {
+      const order = await sbPatchOrder(id, { collectionStatus });
+      if (!order) {
+        return res.status(400).json({ success: false, message: 'Order not found' });
+      }
+      return res.json({ success: true, order });
+    }
+
+    const orders = getStoredOrdersFromFile();
+    const order = orders.find((o: any) => o.id === id);
+
+    if (!order) {
+      return res.status(400).json({ success: false, message: 'Order not found' });
+    }
+
+    order.collectionStatus = collectionStatus;
+    saveOrdersToFile(orders);
+    res.json({ success: true, order });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
   }
-
-  const orders = getStoredOrders();
-  const order = orders.find((o: any) => o.id === id);
-
-  if (!order) {
-    return res.status(400).json({ success: false, message: 'Order not found' });
-  }
-
-  order.collectionStatus = collectionStatus;
-  saveOrders(orders);
-  res.json({ success: true, order });
 });
 
-app.post('/api/orders/:id/payment-status', (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { paymentStatus } = req.body;
+app.post('/api/orders/:id/payment-status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { paymentStatus } = req.body;
 
-  if (!['paid', 'pending', 'failed'].includes(paymentStatus)) {
-    return res.status(400).json({ success: false, message: 'Invalid payment status' });
+    if (!['paid', 'pending', 'failed'].includes(paymentStatus)) {
+      return res.status(400).json({ success: false, message: 'Invalid payment status' });
+    }
+
+    if (supabaseEnabled) {
+      const current = await sbGetOrder(id);
+      if (!current) {
+        return res.status(400).json({ success: false, message: 'Order not found' });
+      }
+      const patch: Record<string, any> = { paymentStatus };
+      if (paymentStatus === 'paid' && !current.paidAt) {
+        patch.paidAt = new Date().toISOString();
+      }
+      const order = await sbPatchOrder(id, patch);
+      return res.json({ success: true, order });
+    }
+
+    const orders = getStoredOrdersFromFile();
+    const order = orders.find((o: any) => o.id === id);
+
+    if (!order) {
+      return res.status(400).json({ success: false, message: 'Order not found' });
+    }
+
+    order.paymentStatus = paymentStatus;
+    if (paymentStatus === 'paid' && !order.paidAt) {
+      order.paidAt = new Date().toISOString();
+    }
+    saveOrdersToFile(orders);
+    res.json({ success: true, order });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
   }
-
-  const orders = getStoredOrders();
-  const order = orders.find((o: any) => o.id === id);
-
-  if (!order) {
-    return res.status(400).json({ success: false, message: 'Order not found' });
-  }
-
-  order.paymentStatus = paymentStatus;
-  if (paymentStatus === 'paid' && !order.paidAt) {
-    order.paidAt = new Date().toISOString();
-  }
-  saveOrders(orders);
-  res.json({ success: true, order });
 });
 
 // Basontas Management Endpoints
-const BASONTAS_FILE = path.resolve(DATA_DIR, 'basontas.json');
-
-app.get('/api/basontas', (_req: Request, res: Response) => {
+app.get('/api/basontas', async (_req: Request, res: Response) => {
   try {
-    if (fs.existsSync(BASONTAS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(BASONTAS_FILE, 'utf-8'));
-      if (Array.isArray(data)) {
-        const seen = new Set<string>();
-        let fragranceSeen = false;
-        const deduped = data.filter((item: any) => {
-          if (!item || !item.id || seen.has(item.id)) return false;
-          // Filter out duplicate fragrance entries like fragrance-stars or generic fragrance
-          if (item.id === 'fragrance-stars' || (item.id === 'fragrance' && seen.has('fragrance-ministry'))) {
-            return false;
-          }
-          if (item.id.includes('fragrance') || (item.name && item.name.toLowerCase().includes('fragrance'))) {
-            if (fragranceSeen) return false;
-            fragranceSeen = true;
-          }
-          seen.add(item.id);
-          return true;
-        });
-        return res.json({ success: true, basontas: deduped });
-      }
+    const data = supabaseEnabled ? await sbListBasontas() : readBasontasFromFile();
+    if (Array.isArray(data)) {
+      return res.json({ success: true, basontas: dedupeBasontas(data) });
     }
   } catch (err) {
     console.error('Error reading basontas:', err);
@@ -534,41 +751,34 @@ app.get('/api/basontas', (_req: Request, res: Response) => {
   res.json({ success: true, basontas: [] });
 });
 
-app.post('/api/basontas', (req: Request, res: Response) => {
+app.post('/api/basontas', async (req: Request, res: Response) => {
   try {
     const { basonta } = req.body;
     if (!basonta || !basonta.id || !basonta.name) {
       return res.status(400).json({ success: false, message: 'Invalid basonta payload' });
     }
-    let list: any[] = [];
-    if (fs.existsSync(BASONTAS_FILE)) {
-      try {
-        list = JSON.parse(fs.readFileSync(BASONTAS_FILE, 'utf-8'));
-      } catch {
-        list = [];
+
+    if (supabaseEnabled) {
+      let list = await sbListBasontas();
+      const idx = list.findIndex((b: any) => b.id === basonta.id);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...basonta };
+      } else {
+        list.push(basonta);
       }
+      const dedupedList = dedupeBasontas(list);
+      await sbSaveBasontas(dedupedList);
+      return res.json({ success: true, basontas: dedupedList });
     }
+
+    let list: any[] = readBasontasFromFile();
     const idx = list.findIndex((b: any) => b.id === basonta.id);
     if (idx >= 0) {
       list[idx] = { ...list[idx], ...basonta };
     } else {
       list.push(basonta);
     }
-    // Guarantee no duplicates and no duplicate fragrance
-    const seen = new Set<string>();
-    let fragranceSeen = false;
-    const dedupedList = list.filter((b: any) => {
-      if (!b || !b.id || seen.has(b.id)) return false;
-      if (b.id === 'fragrance-stars' || (b.id === 'fragrance' && seen.has('fragrance-ministry'))) {
-        return false;
-      }
-      if (b.id.includes('fragrance') || (b.name && b.name.toLowerCase().includes('fragrance'))) {
-        if (fragranceSeen) return false;
-        fragranceSeen = true;
-      }
-      seen.add(b.id);
-      return true;
-    });
+    const dedupedList = dedupeBasontas(list);
     fs.writeFileSync(BASONTAS_FILE, JSON.stringify(dedupedList, null, 2));
     res.json({ success: true, basontas: dedupedList });
   } catch (err: any) {
@@ -576,17 +786,17 @@ app.post('/api/basontas', (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/basontas/:id', (req: Request, res: Response) => {
+app.delete('/api/basontas/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    let list: any[] = [];
-    if (fs.existsSync(BASONTAS_FILE)) {
-      try {
-        list = JSON.parse(fs.readFileSync(BASONTAS_FILE, 'utf-8'));
-      } catch {
-        list = [];
-      }
+
+    if (supabaseEnabled) {
+      await sbDeleteBasonta(id);
+      const list = await sbListBasontas();
+      return res.json({ success: true, basontas: list });
     }
+
+    let list: any[] = readBasontasFromFile();
     const filtered = list.filter((b: any) => b.id !== id);
     fs.writeFileSync(BASONTAS_FILE, JSON.stringify(filtered, null, 2));
     res.json({ success: true, basontas: filtered });
@@ -596,12 +806,16 @@ app.delete('/api/basontas/:id', (req: Request, res: Response) => {
 });
 
 // Photo Management Endpoints
-app.get('/api/photos', (_req: Request, res: Response) => {
-  const photos = getStoredPhotoUrls();
-  res.json({ success: true, photos });
+app.get('/api/photos', async (_req: Request, res: Response) => {
+  try {
+    const photos = await getStoredPhotoUrls();
+    res.json({ success: true, photos });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
-app.post('/api/photos/upload', (req: Request, res: Response) => {
+app.post('/api/photos/upload', async (req: Request, res: Response) => {
   try {
     const { key, dataUrl } = req.body;
     if (!key || !dataUrl) {
@@ -612,41 +826,67 @@ app.post('/api/photos/upload', (req: Request, res: Response) => {
     if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
       const match = dataUrl.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
       if (match) {
-        const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+        const rawExt = match[1] === 'jpeg' ? 'jpg' : match[1];
+        const ext = rawExt.toLowerCase();
         const buffer = Buffer.from(match[2], 'base64');
-        const targetPath = path.join(IMAGES_DIR, `${key}.${ext}`);
-        fs.writeFileSync(targetPath, buffer);
-        savedUrl = `/images/${key}.${ext}`;
-        console.log(`[Photos] Uploaded and saved ${key} to ${targetPath}`);
+        const mime =
+          ext === 'jpg' || ext === 'jpeg'
+            ? 'image/jpeg'
+            : ext === 'webp'
+              ? 'image/webp'
+              : 'image/png';
 
-        // Also sync to dist/images if built
-        const distImagesDir = path.resolve(__dirname, 'dist', 'images');
-        if (fs.existsSync(distImagesDir)) {
-          try {
-            fs.writeFileSync(path.join(distImagesDir, `${key}.${ext}`), buffer);
-          } catch (e) {}
-        }
+        if (supabaseEnabled) {
+          savedUrl = await sbUploadPhoto(key, ext, buffer, mime);
+          console.log(`[Photos] Uploaded ${key} to Supabase storage`);
 
-        // Also update basontas.json if this key matches a basonta
-        if (fs.existsSync(BASONTAS_FILE)) {
+          // Update basonta imageFile if this key matches a basonta
           try {
-            const currentBasontas = JSON.parse(fs.readFileSync(BASONTAS_FILE, 'utf-8'));
-            if (Array.isArray(currentBasontas)) {
-              const idx = currentBasontas.findIndex((b: any) => b.id === key);
-              if (idx >= 0) {
-                currentBasontas[idx].imageFile = savedUrl;
-                fs.writeFileSync(BASONTAS_FILE, JSON.stringify(currentBasontas, null, 2));
-                console.log(`[Photos] Updated basontas.json imageFile for ${key}`);
-              }
+            const currentBasontas = await sbListBasontas();
+            const idx = currentBasontas.findIndex((b: any) => b.id === key);
+            if (idx >= 0) {
+              const updated = { ...currentBasontas[idx], imageFile: savedUrl };
+              await sbUpsertBasonta(updated);
+              console.log(`[Photos] Updated basonta imageFile for ${key}`);
             }
           } catch (e) {
-            console.error('Error updating basontas.json imageFile:', e);
+            console.error('Error updating basonta imageFile:', e);
+          }
+        } else {
+          const targetPath = path.join(IMAGES_DIR, `${key}.${ext}`);
+          fs.writeFileSync(targetPath, buffer);
+          savedUrl = `/images/${key}.${ext}`;
+          console.log(`[Photos] Uploaded and saved ${key} to ${targetPath}`);
+
+          // Also sync to dist/images if built
+          const distImagesDir = path.resolve(__dirname, 'dist', 'images');
+          if (fs.existsSync(distImagesDir)) {
+            try {
+              fs.writeFileSync(path.join(distImagesDir, `${key}.${ext}`), buffer);
+            } catch (e) {}
+          }
+
+          // Also update basontas.json if this key matches a basonta
+          if (fs.existsSync(BASONTAS_FILE)) {
+            try {
+              const currentBasontas = JSON.parse(fs.readFileSync(BASONTAS_FILE, 'utf-8'));
+              if (Array.isArray(currentBasontas)) {
+                const idx = currentBasontas.findIndex((b: any) => b.id === key);
+                if (idx >= 0) {
+                  currentBasontas[idx].imageFile = savedUrl;
+                  fs.writeFileSync(BASONTAS_FILE, JSON.stringify(currentBasontas, null, 2));
+                  console.log(`[Photos] Updated basontas.json imageFile for ${key}`);
+                }
+              }
+            } catch (e) {
+              console.error('Error updating basontas.json imageFile:', e);
+            }
           }
         }
       }
     }
 
-    const photos = getStoredPhotoUrls();
+    const photos = await getStoredPhotoUrls();
     const finalUrl = savedUrl || photos[key] || '';
     res.json({ success: true, photos, updatedKey: key, url: finalUrl });
   } catch (error: any) {
@@ -654,11 +894,13 @@ app.post('/api/photos/upload', (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/photos/reset', (_req: Request, res: Response) => {
+app.post('/api/photos/reset', async (_req: Request, res: Response) => {
   try {
-    // Re-sync base photos
-    syncPhotosToDisk();
-    const photos = getStoredPhotoUrls();
+    // Re-sync base photos (file mode only)
+    if (!supabaseEnabled) {
+      syncPhotosToDisk();
+    }
+    const photos = await getStoredPhotoUrls();
     res.json({ success: true, photos });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
@@ -673,7 +915,7 @@ async function startServer() {
   // Serve static images directly with fast revalidation
   app.use('/images', express.static(IMAGES_DIR, {
     maxAge: '1h',
-    etag: true
+    etag: true,
   }));
   app.use(express.static(PUBLIC_DIR));
 
@@ -698,7 +940,8 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`[First Love Merch] Server running on port ${PORT} (dev: ${!isProduction})`);
+    const storageMode = supabaseEnabled ? 'supabase' : 'local-files';
+    console.log(`[First Love Merch] Server running on port ${PORT} (dev: ${!isProduction}, storage: ${storageMode})`);
   });
 }
 
