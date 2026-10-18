@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ColorOption } from '../types/merch';
-import { sanitizeBasontas } from '../data/merchData';
+import { sanitizeBasontas, BASONTA_CATALOG_IDS } from '../data/merchData';
 import { X, Upload, Camera, Check, Plus, Sparkles, Image as ImageIcon, Trash2 } from 'lucide-react';
 
 interface BasontaUploadModalProps {
@@ -80,17 +80,7 @@ export const BasontaUploadModal: React.FC<BasontaUploadModalProps> = ({
             {cleanList.map((b) => {
               const photoSrc = customPhotos[b.id] || b.imageFile;
               const hasPhoto = Boolean(photoSrc);
-              const isDefaultWing = [
-                'dancing-stars',
-                'film-stars',
-                'fragrance-ministry',
-                'lovelets',
-                'ushers',
-                'hearing-and-seeing',
-                'culinary-stars',
-                'worship-stars',
-                'sheep-seeking',
-              ].includes(b.id);
+              const isDefaultWing = BASONTA_CATALOG_IDS.has(b.id);
 
               return (
                 <div

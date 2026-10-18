@@ -28,6 +28,7 @@ import {
   BASONTA_SHIRTS,
   BASONTA_CATALOG_IDS,
   mergeBasontasWithDefaults,
+  isStaleDefaultBasontaImage,
 } from './src/data/merchData.ts';
 
 /** Pricing: basonta shirts GHC 35; First Love merch GHC 60 (standard) / 100 (premium). Server recomputes — does not trust client unit prices. */
@@ -450,12 +451,14 @@ async function getMergedBasontas(options?: { persistHeal?: boolean }): Promise<a
   if (persistHeal) {
     const storedIds = new Set((Array.isArray(stored) ? stored : []).map((b: any) => b?.id).filter(Boolean));
     const addedDefaults = BASONTA_SHIRTS.some((d) => !deletedIds.includes(d.id) && !storedIds.has(d.id));
-    const missingImages = (Array.isArray(stored) ? stored : []).some((b: any) => {
+    const missingOrStaleImages = (Array.isArray(stored) ? stored : []).some((b: any) => {
       if (!b?.id || !BASONTA_CATALOG_IDS.has(b.id)) return false;
       const def = BASONTA_SHIRTS.find((d) => d.id === b.id);
-      return def && !(b.imageFile && String(b.imageFile).trim());
+      if (!def) return false;
+      const path = b.imageFile && String(b.imageFile).trim();
+      return !path || isStaleDefaultBasontaImage(b.id, path);
     });
-    if (addedDefaults || missingImages) {
+    if (addedDefaults || missingOrStaleImages) {
       try {
         if (supabaseEnabled) {
           await sbSaveBasontas(deduped);

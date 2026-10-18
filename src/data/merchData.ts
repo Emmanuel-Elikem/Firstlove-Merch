@@ -47,12 +47,12 @@ export const BASONTA_SHIRTS: ColorOption[] = [
     name: 'Dancing Stars',
     shortName: 'Dancing Stars',
     category: 'basonta',
-    bodyColor: '#18181B',
-    hex: '#18181B',
-    accentHex: '#FBBF24',
+    bodyColor: '#EA6A0A',
+    hex: '#EA6A0A',
+    accentHex: '#0EA5E9',
     textColor: '#FFFFFF',
-    printColors: 'Custom Print',
-    imageFile: '/images/dancing-stars.jpg',
+    printColors: 'Cyan & White',
+    imageFile: '/images/dancing-stars.png',
     frontText: 'DANCING STARS',
     backText: 'FIRST LOVE CHURCH',
     tagline: '',
@@ -185,8 +185,102 @@ export const BASONTA_SHIRTS: ColorOption[] = [
     backText: 'FIRST LOVE CHURCH',
     tagline: '',
     description: ''
+  },
+  {
+    id: 'telepastoring',
+    name: 'Telepastoring',
+    shortName: 'Telepastoring',
+    category: 'basonta',
+    bodyColor: '#EA6A0A',
+    hex: '#EA6A0A',
+    accentHex: '#0EA5E9',
+    textColor: '#FFFFFF',
+    printColors: 'Cyan & White',
+    imageFile: '/images/telepastoring.png',
+    frontText: 'TELEPASTORING',
+    backText: 'FIRST LOVE CHURCH',
+    tagline: '',
+    description: ''
+  },
+  {
+    id: 'flowing-waters',
+    name: 'Flowing Waters',
+    shortName: 'Flowing Waters',
+    category: 'basonta',
+    bodyColor: '#E8B012',
+    hex: '#E8B012',
+    accentHex: '#FFFFFF',
+    textColor: '#111111',
+    printColors: 'Black & White',
+    imageFile: '/images/flowing-waters.png',
+    frontText: 'FLOWING WATERS',
+    backText: 'FIRST LOVE CHURCH',
+    tagline: '',
+    description: ''
+  },
+  {
+    id: 'diamond-bond',
+    name: 'Diamond Bond',
+    shortName: 'Diamond Bond',
+    category: 'basonta',
+    bodyColor: '#111215',
+    hex: '#111215',
+    accentHex: '#A39B83',
+    textColor: '#FFFFFF',
+    printColors: 'Tan & White',
+    imageFile: '/images/diamond-bond.png',
+    frontText: 'DIAMOND BOND',
+    backText: 'FIRST LOVE CHURCH',
+    tagline: '',
+    description: ''
+  },
+  {
+    id: 'airport-stars',
+    name: 'Airport Stars',
+    shortName: 'Airport Stars',
+    category: 'basonta',
+    bodyColor: '#EC6FA0',
+    hex: '#EC6FA0',
+    accentHex: '#FFFFFF',
+    textColor: '#FFFFFF',
+    printColors: 'White',
+    imageFile: '/images/airport-stars.png',
+    frontText: 'AIRPORT STARS',
+    backText: 'FIRST LOVE CHURCH',
+    tagline: '',
+    description: ''
+  },
+  {
+    id: 'glgc-family',
+    name: 'GLGC Family',
+    shortName: 'GLGC Family',
+    category: 'basonta',
+    bodyColor: '#E8B012',
+    hex: '#E8B012',
+    accentHex: '#FFFFFF',
+    textColor: '#111111',
+    printColors: 'Black & White',
+    imageFile: '/images/glgc-family.png',
+    frontText: 'JOIN THE GLGC FAMILY',
+    backText: 'FIRST LOVE CHURCH',
+    tagline: '',
+    description: ''
   }
 ];
+
+/** Known superseded default asset paths — migrate to current BASONTA_SHIRTS imageFile on merge. */
+export const STALE_DEFAULT_BASONTA_IMAGES: Record<string, string[]> = {
+  'dancing-stars': ['/images/dancing-stars.jpg'],
+};
+
+/** True when a stored imageFile is a known old default that should be replaced by the code default. */
+export function isStaleDefaultBasontaImage(id: string, imageFile: string | undefined | null): boolean {
+  const path = String(imageFile || '').trim();
+  if (!path) return true;
+  const stale = STALE_DEFAULT_BASONTA_IMAGES[id];
+  if (!stale) return false;
+  return stale.some((s) => path === s || path.endsWith(s));
+}
 
 export const FIRST_LOVE_MERCH_SHIRTS: ColorOption[] = [
   {
@@ -374,15 +468,28 @@ export function mergeBasontasWithDefaults(
 
     const base = byId.get(s.id);
     if (base) {
-      byId.set(s.id, {
+      const storedImage = s.imageFile && String(s.imageFile).trim();
+      // Prefer stored image unless missing or a known superseded default path (e.g. dancing-stars.jpg → .png)
+      const useDefaultImage = !storedImage || isStaleDefaultBasontaImage(s.id, storedImage);
+      const merged: ColorOption = {
         ...base,
         ...s,
         id: s.id,
         category: 'basonta',
-        imageFile: (s.imageFile && String(s.imageFile).trim()) || base.imageFile,
+        imageFile: useDefaultImage ? base.imageFile : storedImage,
         name: s.name || base.name,
         shortName: s.shortName || base.shortName,
-      });
+      };
+      // When migrating a stale default asset, also refresh catalog color fields that drifted with the old art
+      if (useDefaultImage && s.id === 'dancing-stars') {
+        merged.bodyColor = base.bodyColor;
+        merged.hex = base.hex;
+        merged.accentHex = base.accentHex;
+        merged.textColor = base.textColor;
+        merged.printColors = base.printColors;
+        merged.imageFile = base.imageFile;
+      }
+      byId.set(s.id, merged);
     } else {
       byId.set(s.id, {
         ...s,
@@ -438,8 +545,16 @@ export function sanitizeBasontas(items: ColorOption[]): ColorOption[] {
     if (normalized.id === 'choreography-and-dance' || normalized.id === 'dancing-stars') {
       normalized.id = 'dancing-stars';
       normalized.name = 'Dancing Stars';
-      normalized.shortName = 'Dancing Stars';
-      normalized.imageFile = normalized.imageFile || '/images/dancing-stars.jpg';
+      normalized.shortName = 'Dancing Stars';      if (!normalized.imageFile || isStaleDefaultBasontaImage('dancing-stars', normalized.imageFile)) {
+        normalized.imageFile = '/images/dancing-stars.png';
+        normalized.bodyColor = normalized.bodyColor === '#18181B' || !normalized.bodyColor ? '#EA6A0A' : normalized.bodyColor;
+        normalized.hex = normalized.hex === '#18181B' || !normalized.hex ? '#EA6A0A' : normalized.hex;
+        normalized.accentHex = normalized.accentHex === '#FBBF24' || !normalized.accentHex ? '#0EA5E9' : normalized.accentHex;
+        normalized.printColors =
+          normalized.printColors === 'Custom Print' || !normalized.printColors
+            ? 'Cyan & White'
+            : normalized.printColors;
+      }
     }
 
     // Filter duplicate fragrance items (only 1 Fragrance Ministry allowed)

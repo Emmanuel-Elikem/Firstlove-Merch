@@ -114,7 +114,7 @@ export default function App() {
       'purple-yellow': '/images/purple-yellow.png',
       'white-teal': '/images/white-teal.png',
       'sand-green': '/images/sand-green.png',
-      'dancing-stars': '/images/dancing-stars.jpg',
+      'dancing-stars': '/images/dancing-stars.png',
       'film-stars': '/images/film-stars.png',
       'fragrance-ministry': '/images/fragrance-ministry.png',
       'lovelets': '/images/lovelets.png',
@@ -123,6 +123,11 @@ export default function App() {
       'culinary-stars': '/images/culinary-stars.png',
       'worship-stars': '/images/worship-stars.png',
       'sheep-seeking': '/images/sheep-seeking.png',
+      'telepastoring': '/images/telepastoring.png',
+      'flowing-waters': '/images/flowing-waters.png',
+      'diamond-bond': '/images/diamond-bond.png',
+      'airport-stars': '/images/airport-stars.png',
+      'glgc-family': '/images/glgc-family.png',
     };
     try {
       const cached = localStorage.getItem('flc_uploaded_photos');
@@ -137,9 +142,25 @@ export default function App() {
             delete parsed[k];
           }
         }
+        // Migrate superseded default photo paths (dancing-stars.jpg → .png)
+        if (
+          parsed['dancing-stars'] === '/images/dancing-stars.jpg' ||
+          (typeof parsed['dancing-stars'] === 'string' &&
+            String(parsed['dancing-stars']).endsWith('/dancing-stars.jpg'))
+        ) {
+          parsed['dancing-stars'] = '/images/dancing-stars.png';
+        }
         const merged = { ...base, ...parsed };
         delete merged['fragrance-stars'];
         delete merged['fragrance'];
+        // Prefer code-default png over any remaining stale jpg overlay
+        if (
+          merged['dancing-stars'] === '/images/dancing-stars.jpg' ||
+          (typeof merged['dancing-stars'] === 'string' &&
+            String(merged['dancing-stars']).endsWith('/dancing-stars.jpg'))
+        ) {
+          merged['dancing-stars'] = '/images/dancing-stars.png';
+        }
         try {
           localStorage.setItem('flc_uploaded_photos', JSON.stringify(merged));
         } catch (e) {}

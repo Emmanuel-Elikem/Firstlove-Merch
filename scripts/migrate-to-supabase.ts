@@ -6,7 +6,8 @@
  *   - data/basontas.json → merch-data/basontas.json (private bucket)
  *   - public/images/*   → merch-photos/<file>      (public bucket; includes all basonta
  *     shirt photos such as culinary-stars, worship-stars, sheep-seeking, film-stars,
- *     fragrance-ministry, hearing-and-seeing, dancing-stars, etc.)
+ *     fragrance-ministry, hearing-and-seeing, dancing-stars, telepastoring,
+ *     flowing-waters, diamond-bond, airport-stars, glgc-family, etc.)
  *
  * Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment.
  * Run: npx tsx scripts/migrate-to-supabase.ts

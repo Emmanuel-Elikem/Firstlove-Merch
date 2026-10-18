@@ -13,6 +13,11 @@ export type ShirtColor =
   | 'culinary-stars'
   | 'worship-stars'
   | 'sheep-seeking'
+  | 'telepastoring'
+  | 'flowing-waters'
+  | 'diamond-bond'
+  | 'airport-stars'
+  | 'glgc-family'
   // First Love Church Merch Shirts
   | 'black-cyan'
   | 'blue-yellow'

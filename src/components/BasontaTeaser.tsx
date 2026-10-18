@@ -12,6 +12,11 @@ export const BasontaTeaser: React.FC = () => {
     'Culinary Stars',
     'Worship Stars',
     'Sheep Seeking',
+    'Telepastoring',
+    'Flowing Waters',
+    'Diamond Bond',
+    'Airport Stars',
+    'GLGC Family',
   ];
 
   return (
