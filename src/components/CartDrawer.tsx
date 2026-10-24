@@ -134,13 +134,28 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         createdAt: new Date().toISOString(),
       };
 
-      // 1. Save to server backend (must succeed/attempt before opening WhatsApp flow)
+      // 1. Save locally to localStorage as immediate safety net
       try {
-        await fetch('/api/orders', {
+        const existing = localStorage.getItem('flc_orders');
+        const list = existing ? JSON.parse(existing) : [];
+        if (Array.isArray(list)) {
+          const updated = [completedOrder, ...list.filter((o: any) => o.id !== completedOrder.id)];
+          localStorage.setItem('flc_orders', JSON.stringify(updated));
+        }
+      } catch (e) {
+        console.warn('Local orders cache warning:', e);
+      }
+
+      // 2. Save to server backend (must succeed/attempt before opening WhatsApp flow)
+      try {
+        const res = await fetch('/api/orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(completedOrder),
         });
+        if (!res.ok) {
+          console.warn('Backend order save warning status:', res.status);
+        }
       } catch (err) {
         console.warn('Backend order save network warning:', err);
       }

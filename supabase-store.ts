@@ -43,15 +43,41 @@ function authHeaders(contentType?: string): Record<string, string> {
 }
 
 async function downloadJson<T>(objectPath: string, fallback: T): Promise<T> {
-  const r = await fetch(
-    `${supabaseUrl()}/storage/v1/object/${DATA_BUCKET}/${objectPath}`,
-    { headers: authHeaders() }
-  );
-  if (r.status === 404) return fallback;
-  if (!r.ok) throw new Error(`Storage download ${objectPath} ${r.status}: ${await r.text()}`);
-  const text = await r.text();
-  if (!text) return fallback;
-  return JSON.parse(text) as T;
+  try {
+    const r = await fetch(
+      `${supabaseUrl()}/storage/v1/object/${DATA_BUCKET}/${objectPath}`,
+      { headers: authHeaders() }
+    );
+    if (r.status === 404) return fallback;
+    if (!r.ok) {
+      const text = await r.text();
+      // Supabase Storage returns 400 with NoSuchKey / not_found / statusCode 404 when object doesn't exist
+      if (
+        r.status === 400 &&
+        (text.includes('NoSuchKey') ||
+          text.includes('not_found') ||
+          text.includes('Object not found') ||
+          text.includes('"statusCode":"404"'))
+      ) {
+        return fallback;
+      }
+      throw new Error(`Storage download ${objectPath} ${r.status}: ${text}`);
+    }
+    const text = await r.text();
+    if (!text || text.trim() === '') return fallback;
+    return JSON.parse(text) as T;
+  } catch (err: any) {
+    if (
+      err?.message &&
+      (err.message.includes('NoSuchKey') ||
+        err.message.includes('not_found') ||
+        err.message.includes('Object not found') ||
+        err.message.includes('404'))
+    ) {
+      return fallback;
+    }
+    throw err;
+  }
 }
 
 async function uploadJson(objectPath: string, data: unknown): Promise<void> {
@@ -118,6 +144,18 @@ export async function patchOrder(id: string, patch: Record<string, any>): Promis
     list[idx] = updated;
     await uploadJson(ORDERS_OBJECT, list);
     return updated;
+  });
+}
+
+export async function deleteOrder(id: string): Promise<boolean> {
+  return withLock(async () => {
+    const orders = await downloadJson<any[]>(ORDERS_OBJECT, []);
+    const list = Array.isArray(orders) ? orders : [];
+    const idx = list.findIndex((o: any) => o.id === id);
+    if (idx < 0) return false;
+    list.splice(idx, 1);
+    await uploadJson(ORDERS_OBJECT, list);
+    return true;
   });
 }
 

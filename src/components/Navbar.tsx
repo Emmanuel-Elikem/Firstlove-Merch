@@ -10,6 +10,7 @@ interface NavbarProps {
   cartTotalGhc: number;
   onOpenCart: () => void;
   onOpenUploadManager?: () => void;
+  onOpenClosedNotice?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -21,18 +22,30 @@ export const Navbar: React.FC<NavbarProps> = ({
   cartTotalGhc,
   onOpenCart,
   onOpenUploadManager,
+  onOpenClosedNotice,
 }) => {
   return (
     <header className="sticky top-0 z-40 w-full bg-neutral-950/85 backdrop-blur-md border-b border-neutral-800/80 px-4 sm:px-8 py-3.5 transition-all">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-8">
         {/* Zone 1: Brand Wordmark */}
-        <button
-          onClick={() => onNavigate('store')}
-          className="text-base sm:text-xl font-black tracking-tight text-white whitespace-nowrap shrink-0 hover:opacity-90 transition-opacity flex items-center gap-2 text-left cursor-pointer"
-        >
-          <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm shadow-blue-500/50" />
-          <span>FIRST LOVE CAPE COAST</span>
-        </button>
+        <div className="flex items-center gap-2.5 shrink-0">
+          <button
+            onClick={() => onNavigate('store')}
+            className="text-base sm:text-xl font-black tracking-tight text-white whitespace-nowrap shrink-0 hover:opacity-90 transition-opacity flex items-center gap-2 text-left cursor-pointer"
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50" />
+            <span>FIRST LOVE CAPE COAST</span>
+          </button>
+          {onOpenClosedNotice && (
+            <button
+              onClick={onOpenClosedNotice}
+              className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 transition-colors cursor-pointer"
+              title="Click to view closure notice"
+            >
+              Closed for Now
+            </button>
+          )}
+        </div>
 
         {/* Zone 2: Navigation Links */}
         <nav className="hidden md:flex items-center gap-6 text-xs font-semibold text-neutral-400">

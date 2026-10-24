@@ -124,8 +124,8 @@ export const BASONTA_SHIRTS: ColorOption[] = [
   },
   {
     id: 'hearing-and-seeing',
-    name: 'Projection',
-    shortName: 'Projection',
+    name: 'MEDIA Shirt',
+    shortName: 'MEDIA Shirt',
     category: 'basonta',
     bodyColor: '#111215',
     hex: '#111215',
@@ -133,10 +133,10 @@ export const BASONTA_SHIRTS: ColorOption[] = [
     textColor: '#FFFFFF',
     printColors: 'Orange & White',
     imageFile: '/images/hearing-and-seeing.jpg',
-    frontText: 'PROJECTION',
+    frontText: 'MEDIA',
     backText: 'HEARING SEEING · ROMANS 10:17',
-    tagline: 'Projection & Media Crew',
-    description: 'Official projection and media workforce t-shirt featuring front chest PROJECTION lettering and multi-icon back graphics.'
+    tagline: 'Media & Projection Crew',
+    description: 'Official Media workforce t-shirt featuring front chest MEDIA lettering and multi-icon back graphics.'
   },
   {
     id: 'culinary-stars',
@@ -198,22 +198,6 @@ export const BASONTA_SHIRTS: ColorOption[] = [
     printColors: 'Cyan & White',
     imageFile: '/images/telepastoring.png',
     frontText: 'TELEPASTORING',
-    backText: 'FIRST LOVE CHURCH',
-    tagline: '',
-    description: ''
-  },
-  {
-    id: 'flowing-waters',
-    name: 'Flowing Waters',
-    shortName: 'Flowing Waters',
-    category: 'basonta',
-    bodyColor: '#E8B012',
-    hex: '#E8B012',
-    accentHex: '#FFFFFF',
-    textColor: '#111111',
-    printColors: 'Black & White',
-    imageFile: '/images/flowing-waters.png',
-    frontText: 'FLOWING WATERS',
     backText: 'FIRST LOVE CHURCH',
     tagline: '',
     description: ''
@@ -583,13 +567,13 @@ export function sanitizeBasontas(items: ColorOption[]): ColorOption[] {
     }
 
     if (normalized.id === 'hearing-and-seeing') {
-      normalized.name = 'Projection';
-      normalized.shortName = 'Projection';
+      normalized.name = 'MEDIA Shirt';
+      normalized.shortName = 'MEDIA Shirt';
       normalized.bodyColor = '#111215';
       normalized.hex = '#111215';
       normalized.accentHex = normalized.accentHex || '#EA580C';
       normalized.imageFile = normalized.imageFile || '/images/hearing-and-seeing.jpg';
-      normalized.frontText = 'PROJECTION';
+      normalized.frontText = 'MEDIA';
       normalized.backText = normalized.backText || 'HEARING SEEING · ROMANS 10:17';
     }
 
@@ -617,154 +601,6 @@ export const AVAILABLE_SIZES: { size: ShirtSize; chestInches: string; lengthInch
   { size: '3XL', chestInches: '51-53"', lengthInches: '32"', recommendation: 'Roomy (108kg+)' }
 ];
 
-export const INITIAL_ORDERS: CustomerOrder[] = [
-  {
-    id: 'FLC-8020',
-    churchBranch: 'First Love Cape Coast',
-    customerName: 'Ama Boateng',
-    customerPhone: '0244001122',
-    customerEmail: 'ama.boateng@gmail.com',
-    pickupNotes: 'Basonta desk',
-    items: [
-      {
-        id: 'item-0',
-        edition: 'standard',
-        color: 'culinary-stars',
-        size: 'M',
-        quantity: 1,
-        unitPrice: BASONTA_PRICE_GHC,
-        subtotal: BASONTA_PRICE_GHC
-      }
-    ],
-    subtotalGhc: BASONTA_PRICE_GHC,
-    processingFeeGhc: 1,
-    feePerShirtGhc: 1,
-    totalAmountGhc: BASONTA_PRICE_GHC + 1,
-    currency: 'GHS',
-    momoNumber: '0536193423',
-    momoAccountName: 'Emmanuel Nerkwei Nettey',
-    momoReference: 'FLC-8020',
-    momoSenderPhone: '0244001122',
-    paymentStatus: 'paid',
-    collectionStatus: 'pending',
-    channel: 'mobile_money',
-    paidAt: '2026-10-15T13:00:00Z',
-    createdAt: '2026-10-15T12:58:00Z'
-  },
-  {
-    id: 'FLC-8021',
-    churchBranch: 'First Love Cape Coast',
-    customerName: 'Kofi Mensah',
-    customerPhone: '0244123456',
-    customerEmail: 'kofi.mensah@gmail.com',
-    pickupNotes: 'Valco Hall / North Zone',
-    items: [
-      {
-        id: 'item-1',
-        edition: 'premium',
-        color: 'black-cyan',
-        size: 'L',
-        quantity: 1,
-        unitPrice: 100,
-        subtotal: 100
-      }
-    ],
-    subtotalGhc: 100,
-    processingFeeGhc: 1,
-    feePerShirtGhc: 1,
-    totalAmountGhc: 101,
-    currency: 'GHS',
-    momoNumber: '0536193423',
-    momoAccountName: 'Emmanuel Nerkwei Nettey',
-    momoReference: 'FLC-8021',
-    momoSenderPhone: '0244123456',
-    paymentStatus: 'paid',
-    collectionStatus: 'ready_for_pickup',
-    channel: 'mobile_money',
-    paidAt: '2026-10-15T14:30:00Z',
-    createdAt: '2026-10-15T14:28:10Z'
-  },
-  {
-    id: 'FLC-8022',
-    churchBranch: 'First Love Cape Coast',
-    customerName: 'Abena Osei',
-    customerPhone: '0559876543',
-    customerEmail: 'abena.osei@yahoo.com',
-    pickupNotes: 'Adehye Hall',
-    items: [
-      {
-        id: 'item-2',
-        edition: 'standard',
-        color: 'white-purple',
-        size: 'M',
-        quantity: 2,
-        unitPrice: 60,
-        subtotal: 120
-      },
-      {
-        id: 'item-3',
-        edition: 'premium',
-        color: 'sand-green',
-        size: 'XL',
-        quantity: 1,
-        unitPrice: 100,
-        subtotal: 100
-      }
-    ],
-    subtotalGhc: 220,
-    processingFeeGhc: 3,
-    feePerShirtGhc: 1,
-    totalAmountGhc: 223,
-    currency: 'GHS',
-    momoNumber: '0536193423',
-    momoAccountName: 'Emmanuel Nerkwei Nettey',
-    momoReference: 'FLC-8022',
-    momoSenderPhone: '0559876543',
-    paymentStatus: 'paid',
-    collectionStatus: 'collected',
-    channel: 'mobile_money',
-    paidAt: '2026-10-15T15:10:00Z',
-    createdAt: '2026-10-15T15:08:45Z'
-  },
-  {
-    id: 'FLC-8023',
-    churchBranch: 'First Love Cape Coast',
-    customerName: 'Emmanuel Ansah',
-    customerPhone: '0207654321',
-    customerEmail: 'eansah@gmail.com',
-    pickupNotes: 'UCC Casford Hostel',
-    items: [
-      {
-        id: 'item-4',
-        edition: 'premium',
-        color: 'white-teal',
-        size: 'XL',
-        quantity: 1,
-        unitPrice: 100,
-        subtotal: 100
-      },
-      {
-        id: 'item-5',
-        edition: 'standard',
-        color: 'purple-yellow',
-        size: 'M',
-        quantity: 1,
-        unitPrice: 60,
-        subtotal: 60
-      }
-    ],
-    subtotalGhc: 160,
-    processingFeeGhc: 2,
-    feePerShirtGhc: 1,
-    totalAmountGhc: 162,
-    currency: 'GHS',
-    momoNumber: '0536193423',
-    momoAccountName: 'Emmanuel Nerkwei Nettey',
-    momoReference: 'FLC-8023',
-    momoSenderPhone: '0207654321',
-    paymentStatus: 'pending',
-    collectionStatus: 'pending',
-    channel: 'mobile_money',
-    createdAt: '2026-10-15T15:59:12Z'
-  }
-];
+export const MOCK_ORDER_IDS = new Set(['FLC-8020', 'FLC-8021', 'FLC-8022', 'FLC-8023']);
+
+export const INITIAL_ORDERS: CustomerOrder[] = [];

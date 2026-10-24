@@ -8,9 +8,11 @@ import { fileURLToPath } from 'url';
 import {
   supabaseEnabled,
   listOrders as sbListOrders,
+  saveOrders as sbSaveOrders,
   getOrder as sbGetOrder,
   upsertOrder as sbUpsertOrder,
   patchOrder as sbPatchOrder,
+  deleteOrder as sbDeleteOrder,
   findOrderByPaystackReference as sbFindByPaystackRef,
   findOrderByMomoReference as sbFindByMomoRef,
   listBasontas as sbListBasontas,
@@ -207,149 +209,21 @@ async function getStoredPhotoUrls(): Promise<Record<string, string>> {
   return result;
 }
 
-// Initial orders seed if file doesn't exist — only when file fallback is active
-if (!supabaseEnabled && !fs.existsSync(ORDERS_FILE)) {
-  const initialOrders = [
-    {
-      id: 'FLC-8020',
-      churchBranch: 'First Love Cape Coast',
-      customerName: 'Ama Boateng',
-      customerPhone: '0244001122',
-      customerEmail: 'ama.boateng@gmail.com',
-      pickupNotes: 'Basonta desk',
-      items: [
-        {
-          id: 'item-0',
-          edition: 'standard',
-          color: 'culinary-stars',
-          size: 'M',
-          quantity: 1,
-          unitPrice: 35,
-          subtotal: 35,
-        },
-      ],
-      subtotalGhc: 35,
-      processingFeeGhc: 1,
-      feePerShirtGhc: 1,
-      totalAmountGhc: 36,
-      currency: 'GHS',
-      paymentStatus: 'paid',
-      collectionStatus: 'pending',
-      channel: 'mobile_money',
-      paidAt: '2026-10-15T13:00:00Z',
-      createdAt: '2026-10-15T12:58:00Z',
-    },
-    {
-      id: 'FLC-8021',
-      churchBranch: 'First Love Cape Coast',
-      customerName: 'Kofi Mensah',
-      customerPhone: '0244123456',
-      customerEmail: 'kofi.mensah@gmail.com',
-      pickupNotes: 'Valco Hall / North Zone',
-      items: [
-        {
-          id: 'item-1',
-          edition: 'premium',
-          color: 'black-cyan',
-          size: 'L',
-          quantity: 1,
-          unitPrice: 100,
-          subtotal: 100,
-        },
-      ],
-      subtotalGhc: 100,
-      processingFeeGhc: 1,
-      feePerShirtGhc: 1,
-      totalAmountGhc: 101,
-      currency: 'GHS',
-      paystackReference: 'T_FLC_8021_KOF',
-      paymentStatus: 'paid',
-      collectionStatus: 'ready_for_pickup',
-      channel: 'mobile_money',
-      paidAt: '2026-10-15T14:30:00Z',
-      createdAt: '2026-10-15T14:28:10Z',
-    },
-    {
-      id: 'FLC-8022',
-      churchBranch: 'First Love Cape Coast',
-      customerName: 'Abena Osei',
-      customerPhone: '0559876543',
-      customerEmail: 'abena.osei@yahoo.com',
-      pickupNotes: 'Adehye Hall',
-      items: [
-        {
-          id: 'item-2',
-          edition: 'standard',
-          color: 'blue-yellow',
-          size: 'M',
-          quantity: 2,
-          unitPrice: 60,
-          subtotal: 120,
-        },
-        {
-          id: 'item-3',
-          edition: 'premium',
-          color: 'sand-green',
-          size: 'XL',
-          quantity: 1,
-          unitPrice: 100,
-          subtotal: 100,
-        },
-      ],
-      totalAmountGhc: 220,
-      currency: 'GHS',
-      paystackReference: 'T_FLC_8022_ABE',
-      paymentStatus: 'paid',
-      collectionStatus: 'collected',
-      channel: 'mobile_money',
-      paidAt: '2026-10-15T15:10:00Z',
-      createdAt: '2026-10-15T15:08:45Z',
-    },
-    {
-      id: 'FLC-8023',
-      churchBranch: 'First Love Cape Coast',
-      customerName: 'Emmanuel Ansah',
-      customerPhone: '0207654321',
-      customerEmail: 'eansah@gmail.com',
-      pickupNotes: 'Casford Hall',
-      items: [
-        {
-          id: 'item-4',
-          edition: 'premium',
-          color: 'purple-yellow',
-          size: 'XL',
-          quantity: 1,
-          unitPrice: 100,
-          subtotal: 100,
-        },
-        {
-          id: 'item-5',
-          edition: 'standard',
-          color: 'white-purple',
-          size: 'M',
-          quantity: 1,
-          unitPrice: 60,
-          subtotal: 60,
-        },
-      ],
-      totalAmountGhc: 160,
-      currency: 'GHS',
-      paystackReference: 'T_FLC_8023_EMM',
-      paymentStatus: 'paid',
-      collectionStatus: 'pending',
-      channel: 'card',
-      paidAt: '2026-10-15T16:02:00Z',
-      createdAt: '2026-10-15T15:59:12Z',
-    },
-  ];
-  fs.writeFileSync(ORDERS_FILE, JSON.stringify(initialOrders, null, 2));
+// Initial orders seed if file doesn't exist
+if (!fs.existsSync(ORDERS_FILE)) {
+  fs.writeFileSync(ORDERS_FILE, JSON.stringify([], null, 2));
 }
+
+const MOCK_ORDER_IDS = new Set(['FLC-8020', 'FLC-8021', 'FLC-8022', 'FLC-8023']);
 
 function getStoredOrdersFromFile(): any[] {
   try {
     if (fs.existsSync(ORDERS_FILE)) {
       const data = fs.readFileSync(ORDERS_FILE, 'utf-8');
-      return JSON.parse(data);
+      const list = JSON.parse(data);
+      if (Array.isArray(list)) {
+        return list.filter((o: any) => o && !MOCK_ORDER_IDS.has(o.id));
+      }
     }
   } catch (err) {
     console.error('Error reading orders file:', err);
@@ -359,7 +233,8 @@ function getStoredOrdersFromFile(): any[] {
 
 function saveOrdersToFile(orders: any[]) {
   try {
-    fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2));
+    const cleaned = (orders || []).filter((o: any) => o && !MOCK_ORDER_IDS.has(o.id));
+    fs.writeFileSync(ORDERS_FILE, JSON.stringify(cleaned, null, 2));
   } catch (err) {
     console.error('Error saving orders file:', err);
   }
@@ -367,7 +242,25 @@ function saveOrdersToFile(orders: any[]) {
 
 async function getStoredOrders(): Promise<any[]> {
   if (supabaseEnabled) {
-    return sbListOrders();
+    try {
+      const orders = await sbListOrders();
+      if (Array.isArray(orders) && orders.length > 0) {
+        const cleaned = orders.filter((o: any) => o && !MOCK_ORDER_IDS.has(o.id));
+        // Keep local orders.json in sync as a resilient backup
+        saveOrdersToFile(cleaned);
+        return cleaned;
+      }
+      // If Supabase returned empty but local file has orders, seed Supabase!
+      const fileOrders = getStoredOrdersFromFile();
+      if (fileOrders.length > 0) {
+        sbSaveOrders(fileOrders).catch((err: any) => console.error('Error seeding Supabase orders:', err));
+        return fileOrders;
+      }
+      return [];
+    } catch (err) {
+      console.error('Error fetching Supabase orders, falling back to local file:', err);
+      return getStoredOrdersFromFile();
+    }
   }
   return getStoredOrdersFromFile();
 }
@@ -377,6 +270,10 @@ function dedupeBasontas(data: any[]): any[] {
   let fragranceSeen = false;
   return data.filter((item: any) => {
     if (!item || !item.id || seen.has(item.id)) return false;
+    // Filter out removed basontas like flowing-waters
+    if (item.id === 'flowing-waters') {
+      return false;
+    }
     // Filter out duplicate fragrance entries like fragrance-stars or generic fragrance
     if (item.id === 'fragrance-stars' || (item.id === 'fragrance' && seen.has('fragrance-ministry'))) {
       return false;
@@ -420,15 +317,17 @@ function saveDeletedBasontaIdsToFile(ids: string[]) {
 }
 
 async function loadDeletedBasontaIds(): Promise<string[]> {
+  const fileIds = readDeletedBasontaIdsFromFile();
   if (supabaseEnabled) {
     try {
-      return await sbListDeletedBasontaIds();
+      const sbIds = await sbListDeletedBasontaIds();
+      return Array.from(new Set([...fileIds, ...sbIds]));
     } catch (err) {
       console.error('Error loading deleted basonta ids from Supabase:', err);
-      return [];
+      return fileIds;
     }
   }
-  return readDeletedBasontaIdsFromFile();
+  return fileIds;
 }
 
 /**
@@ -748,11 +647,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
     const basontaIds = await loadBasontaIdSet();
     const newOrder = normalizeOrderPricing(incoming, basontaIds);
 
-    if (supabaseEnabled) {
-      const saved = await sbUpsertOrder(newOrder);
-      return res.json({ success: true, order: saved });
-    }
-
+    // 1. Always save to local file as persistent backup first
     const orders = getStoredOrdersFromFile();
     const existingIndex = orders.findIndex(
       (o: any) => o.id === newOrder.id || (newOrder.momoReference && o.momoReference === newOrder.momoReference)
@@ -760,14 +655,26 @@ app.post('/api/orders', async (req: Request, res: Response) => {
 
     if (existingIndex >= 0) {
       orders[existingIndex] = { ...orders[existingIndex], ...newOrder, id: orders[existingIndex].id };
-      saveOrdersToFile(orders);
-      return res.json({ success: true, order: orders[existingIndex] });
+    } else {
+      orders.unshift(newOrder);
+    }
+    saveOrdersToFile(orders);
+
+    // 2. If Supabase is enabled, save to Supabase Storage
+    if (supabaseEnabled) {
+      try {
+        const saved = await sbUpsertOrder(newOrder);
+        return res.json({ success: true, order: saved });
+      } catch (sbErr) {
+        console.error('Error saving order to Supabase, but preserved in local file backup:', sbErr);
+        // Do not fail customer order submission if Supabase storage has a temporary hiccup
+        return res.json({ success: true, order: newOrder });
+      }
     }
 
-    orders.unshift(newOrder);
-    saveOrdersToFile(orders);
     res.json({ success: true, order: newOrder });
   } catch (error: any) {
+    console.error('Error creating order:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -781,23 +688,29 @@ app.post('/api/orders/:id/status', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Invalid collection status' });
     }
 
-    if (supabaseEnabled) {
-      const order = await sbPatchOrder(id, { collectionStatus });
-      if (!order) {
-        return res.status(400).json({ success: false, message: 'Order not found' });
-      }
-      return res.json({ success: true, order });
-    }
-
+    // Always update local file
     const orders = getStoredOrdersFromFile();
     const order = orders.find((o: any) => o.id === id);
+    if (order) {
+      order.collectionStatus = collectionStatus;
+      saveOrdersToFile(orders);
+    }
+
+    if (supabaseEnabled) {
+      try {
+        const updated = await sbPatchOrder(id, { collectionStatus });
+        if (updated) {
+          return res.json({ success: true, order: updated });
+        }
+      } catch (sbErr) {
+        console.error('Failed to update status in Supabase:', sbErr);
+      }
+    }
 
     if (!order) {
       return res.status(400).json({ success: false, message: 'Order not found' });
     }
 
-    order.collectionStatus = collectionStatus;
-    saveOrdersToFile(orders);
     res.json({ success: true, order });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
@@ -813,32 +726,82 @@ app.post('/api/orders/:id/payment-status', async (req: Request, res: Response) =
       return res.status(400).json({ success: false, message: 'Invalid payment status' });
     }
 
-    if (supabaseEnabled) {
-      const current = await sbGetOrder(id);
-      if (!current) {
-        return res.status(400).json({ success: false, message: 'Order not found' });
-      }
-      const patch: Record<string, any> = { paymentStatus };
-      if (paymentStatus === 'paid' && !current.paidAt) {
-        patch.paidAt = new Date().toISOString();
-      }
-      const order = await sbPatchOrder(id, patch);
-      return res.json({ success: true, order });
-    }
-
+    // Always update local file
     const orders = getStoredOrdersFromFile();
     const order = orders.find((o: any) => o.id === id);
+    if (order) {
+      order.paymentStatus = paymentStatus;
+      if (paymentStatus === 'paid' && !order.paidAt) {
+        order.paidAt = new Date().toISOString();
+      }
+      saveOrdersToFile(orders);
+    }
+
+    if (supabaseEnabled) {
+      try {
+        const current = await sbGetOrder(id);
+        const patch: Record<string, any> = { paymentStatus };
+        if (paymentStatus === 'paid' && (!current || !current.paidAt)) {
+          patch.paidAt = new Date().toISOString();
+        }
+        const updated = await sbPatchOrder(id, patch);
+        if (updated) {
+          return res.json({ success: true, order: updated });
+        }
+      } catch (sbErr) {
+        console.error('Failed to update payment status in Supabase:', sbErr);
+      }
+    }
 
     if (!order) {
       return res.status(400).json({ success: false, message: 'Order not found' });
     }
 
-    order.paymentStatus = paymentStatus;
-    if (paymentStatus === 'paid' && !order.paidAt) {
-      order.paidAt = new Date().toISOString();
-    }
-    saveOrdersToFile(orders);
     res.json({ success: true, order });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.delete('/api/orders/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const orders = getStoredOrdersFromFile();
+    const filtered = orders.filter((o: any) => o.id !== id);
+    saveOrdersToFile(filtered);
+
+    if (supabaseEnabled) {
+      try {
+        await sbDeleteOrder(id);
+      } catch (err) {
+        console.error('Failed to delete order from Supabase:', err);
+      }
+    }
+
+    res.json({ success: true, message: `Order ${id} deleted successfully`, remaining: filtered.length });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/orders/:id/delete', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const orders = getStoredOrdersFromFile();
+    const filtered = orders.filter((o: any) => o.id !== id);
+    saveOrdersToFile(filtered);
+
+    if (supabaseEnabled) {
+      try {
+        await sbDeleteOrder(id);
+      } catch (err) {
+        console.error('Failed to delete order from Supabase:', err);
+      }
+    }
+
+    res.json({ success: true, message: `Order ${id} deleted successfully`, remaining: filtered.length });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }

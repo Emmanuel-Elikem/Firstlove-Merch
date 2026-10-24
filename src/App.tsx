@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ShirtColor, ShirtEdition, ShirtSize, CartItem, CustomerOrder, PhotoMap, ColorOption } from './types/merch';
-import { BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, INITIAL_ORDERS, sanitizeBasontas, unitPriceForShirt, mergeBasontasWithDefaults, isBasontaColor } from './data/merchData';
+import { BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, INITIAL_ORDERS, MOCK_ORDER_IDS, sanitizeBasontas, unitPriceForShirt, mergeBasontasWithDefaults, isBasontaColor } from './data/merchData';
 import { Navbar } from './components/Navbar';
 import { LandscapeCampaignBanner } from './components/LandscapeCampaignBanner';
 import { ColorGallerySection } from './components/ColorGallerySection';
@@ -17,7 +17,8 @@ import { AdminOrdersView } from './components/AdminOrdersView';
 import { AdminAuthModal } from './components/AdminAuthModal';
 import { BasontaTeaser } from './components/BasontaTeaser';
 import { BasontaUploadModal } from './components/BasontaUploadModal';
-import { Sparkles, ShoppingBag } from 'lucide-react';
+import { ClosedAnnouncementModal } from './components/ClosedAnnouncementModal';
+import { Sparkles, ShoppingBag, Lock } from 'lucide-react';
 
 // Helper to compress client-selected images before upload to keep payloads fast & under storage quota
 function compressImageFile(file: File, maxDimension = 1600, quality = 0.85): Promise<string> {
@@ -77,11 +78,15 @@ export default function App() {
       const saved = localStorage.getItem('flc_basontas');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) stored = parsed;
+        if (Array.isArray(parsed)) {
+          stored = parsed.filter((b) => b && b.id !== 'flowing-waters');
+        }
       }
     } catch (e) {}
 
-    const merged = mergeBasontasWithDefaults(stored, deletedIds, BASONTA_SHIRTS);
+    const merged = mergeBasontasWithDefaults(stored, deletedIds, BASONTA_SHIRTS).filter(
+      (b) => b && b.id !== 'flowing-waters'
+    );
     try {
       localStorage.setItem('flc_basontas', JSON.stringify(merged));
     } catch (e) {}
@@ -124,7 +129,6 @@ export default function App() {
       'worship-stars': '/images/worship-stars.png',
       'sheep-seeking': '/images/sheep-seeking.png',
       'telepastoring': '/images/telepastoring.png',
-      'flowing-waters': '/images/flowing-waters.png',
       'diamond-bond': '/images/diamond-bond.png',
       'airport-stars': '/images/airport-stars.png',
       'glgc-family': '/images/glgc-family.png',
@@ -133,9 +137,10 @@ export default function App() {
       const cached = localStorage.getItem('flc_uploaded_photos');
       if (cached) {
         const parsed = JSON.parse(cached);
-        // Clean out duplicate fragrance keys
+        // Clean out duplicate fragrance keys and removed wings
         delete parsed['fragrance-stars'];
         delete parsed['fragrance'];
+        delete parsed['flowing-waters'];
         // Purge any huge raw base64 data URLs that caused storage quota issues
         for (const [k, v] of Object.entries(parsed)) {
           if (typeof v === 'string' && v.startsWith('data:image/') && v.length > 500) {
@@ -170,8 +175,22 @@ export default function App() {
     return base;
   });
 
-  // Orders State (Synced with Backend /api/orders)
-  const [orders, setOrders] = useState<CustomerOrder[]>(INITIAL_ORDERS);
+  // Orders State (Synced with Backend /api/orders and localStorage backup)
+  // Orders State (Synced with Backend /api/orders and localStorage backup)
+  const [orders, setOrders] = useState<CustomerOrder[]>(() => {
+    try {
+      const saved = localStorage.getItem('flc_orders');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const valid = parsed.filter((o) => o && !MOCK_ORDER_IDS.has(o.id));
+          localStorage.setItem('flc_orders', JSON.stringify(valid));
+          return valid;
+        }
+      }
+    } catch {}
+    return [];
+  });
   const [confirmedOrder, setConfirmedOrder] = useState<CustomerOrder | null>(null);
 
   // Modals & Notifications
@@ -179,6 +198,7 @@ export default function App() {
   const [isFlyerOpen, setIsFlyerOpen] = useState(false);
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isClosedModalOpen, setIsClosedModalOpen] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Staff Passcode Authentication State (Passcode: FLC)
@@ -201,6 +221,16 @@ export default function App() {
     }
   }, [cartItems]);
 
+  // Keep orders backed up in localStorage
+  useEffect(() => {
+    try {
+      const valid = (orders || []).filter((o) => o && !MOCK_ORDER_IDS.has(o.id));
+      localStorage.setItem('flc_orders', JSON.stringify(valid));
+    } catch (e) {
+      console.error('Failed to save orders to localStorage:', e);
+    }
+  }, [orders]);
+
   // Fetch photos, custom basontas and live orders from server
   const fetchServerData = async () => {
     try {
@@ -213,7 +243,32 @@ export default function App() {
       if (ordersRes.ok) {
         const ordersData = await ordersRes.json();
         if (ordersData.orders && Array.isArray(ordersData.orders)) {
-          setOrders(ordersData.orders);
+          const serverOrders: CustomerOrder[] = ordersData.orders.filter(
+            (o: any) => o && !MOCK_ORDER_IDS.has(o.id)
+          );
+          setOrders((prev) => {
+            const cleanPrev = prev.filter((o) => o && !MOCK_ORDER_IDS.has(o.id));
+            const serverIds = new Set(serverOrders.map((o) => o.id));
+            // Find any local orders that weren't on the server yet (e.g. submitted during outage)
+            const localOnly = cleanPrev.filter((o) => !serverIds.has(o.id) && !MOCK_ORDER_IDS.has(o.id));
+
+            // Sync any local-only orders back to server automatically
+            if (localOnly.length > 0) {
+              localOnly.forEach((o) => {
+                fetch('/api/orders', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(o),
+                }).catch(console.error);
+              });
+            }
+
+            const merged = [...localOnly, ...serverOrders];
+            try {
+              localStorage.setItem('flc_orders', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
         }
       }
 
@@ -222,10 +277,12 @@ export default function App() {
         if (photosData.photos && typeof photosData.photos === 'object') {
           delete photosData.photos['fragrance-stars'];
           delete photosData.photos['fragrance'];
+          delete photosData.photos['flowing-waters'];
           setCustomPhotos((prev) => {
             const merged = { ...prev, ...photosData.photos };
             delete merged['fragrance-stars'];
             delete merged['fragrance'];
+            delete merged['flowing-waters'];
             try {
               localStorage.setItem('flc_uploaded_photos', JSON.stringify(merged));
             } catch (e) {}
@@ -237,23 +294,23 @@ export default function App() {
       if (basontasRes.ok) {
         const basontasData = await basontasRes.json();
         if (basontasData.basontas && Array.isArray(basontasData.basontas)) {
-          let deletedIds: string[] = [];
+          let deletedIds: string[] = ['flowing-waters'];
           try {
             const rawDeleted = localStorage.getItem('flc_deleted_basontas');
             if (rawDeleted) {
               const parsedDeleted = JSON.parse(rawDeleted);
               if (Array.isArray(parsedDeleted)) {
-                deletedIds = parsedDeleted.filter((id: unknown) => typeof id === 'string');
+                deletedIds = [...new Set([...deletedIds, ...parsedDeleted.filter((id: unknown) => typeof id === 'string')])];
               }
             }
           } catch (e) {}
           // Server already merges defaults; still merge client-side so localStorage
           // tombstones and any race with stale cache cannot drop new defaults.
           const finalBasontas = mergeBasontasWithDefaults(
-            basontasData.basontas,
+            basontasData.basontas.filter((b: any) => b && b.id !== 'flowing-waters'),
             deletedIds,
             BASONTA_SHIRTS
-          );
+          ).filter((b) => b && b.id !== 'flowing-waters');
           setBasontas(finalBasontas);
           try {
             localStorage.setItem('flc_basontas', JSON.stringify(finalBasontas));
@@ -267,7 +324,12 @@ export default function App() {
 
   useEffect(() => {
     fetchServerData();
-  }, []);
+    // Live auto-refresh polling: faster in admin view (8s) so new orders appear immediately
+    const interval = setInterval(() => {
+      fetchServerData();
+    }, currentView === 'admin' ? 8000 : 25000);
+    return () => clearInterval(interval);
+  }, [currentView]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -483,42 +545,10 @@ export default function App() {
     showToast('Admin session locked');
   };
 
-  // Cart operations
-  const handleAddToCart = (openCartImmediately: boolean = false) => {
-    const allShirtsForPrice = [...basontas, ...FIRST_LOVE_MERCH_SHIRTS];
-    const selectedShirt = allShirtsForPrice.find((c) => c.id === selectedColorId);
-    // Basonta never uses Standard/Premium edition pricing — pin edition key for cart merge only
-    const cartEdition = isBasontaColor(selectedShirt, selectedColorId) ? 'standard' : selectedEdition;
-    const currentPrice = unitPriceForShirt(selectedShirt, cartEdition, selectedColorId);
-    const existingIndex = cartItems.findIndex(
-      (item) => item.edition === cartEdition && item.color === selectedColorId && item.size === selectedSize
-    );
-
-    if (existingIndex >= 0) {
-      const updated = [...cartItems];
-      updated[existingIndex].quantity += quantity;
-      updated[existingIndex].unitPrice = currentPrice;
-      updated[existingIndex].subtotal = updated[existingIndex].quantity * currentPrice;
-      setCartItems(updated);
-    } else {
-      const newItem: CartItem = {
-        id: `cart-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-        edition: cartEdition,
-        color: selectedColorId,
-        size: selectedSize,
-        quantity,
-        unitPrice: currentPrice,
-        subtotal: quantity * currentPrice,
-      };
-      setCartItems([...cartItems, newItem]);
-    }
-
-    const colorName = allShirtsForPrice.find((c) => c.id === selectedColorId)?.shortName || selectedColorId;
-    showToast(`Added ${quantity}x ${colorName} (${selectedSize}) to pre-order bag!`);
-
-    if (openCartImmediately) {
-      setIsCartOpen(true);
-    }
+  // Cart operations (Pre-Orders currently closed for printing)
+  const handleAddToCart = (_openCartImmediately: boolean = false) => {
+    setIsClosedModalOpen(true);
+    showToast('Pre-orders are closed for now — printing & compilation in progress.');
   };
 
   const handleUpdateQuantity = (id: string, delta: number) => {
@@ -546,7 +576,13 @@ export default function App() {
   };
 
   const handleOrderSuccess = (newOrder: CustomerOrder) => {
-    setOrders((prev) => [newOrder, ...prev]);
+    setOrders((prev) => {
+      const updated = [newOrder, ...prev.filter((o) => o.id !== newOrder.id)];
+      try {
+        localStorage.setItem('flc_orders', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
     setConfirmedOrder(newOrder);
   };
 
@@ -582,6 +618,25 @@ export default function App() {
     }
   };
 
+  const handleDeleteOrder = async (orderId: string) => {
+    setOrders((prev) => {
+      const updated = prev.filter((o) => o.id !== orderId);
+      try {
+        localStorage.setItem('flc_orders', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    showToast(`Order ${orderId} permanently removed`);
+
+    try {
+      await fetch(`/api/orders/${orderId}`, {
+        method: 'DELETE',
+      });
+    } catch (err) {
+      console.error('Failed to delete order on server:', err);
+    }
+  };
+
   const scrollToCustomizer = () => {
     const el = document.getElementById('merch-store');
     if (el) {
@@ -612,7 +667,22 @@ export default function App() {
         cartTotalGhc={cartTotalGhc}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenUploadManager={() => setIsUploadModalOpen(true)}
+        onOpenClosedNotice={() => setIsClosedModalOpen(true)}
       />
+
+      {/* Persistent Store Closed Notification Strip */}
+      <div className="w-full bg-gradient-to-r from-red-950 via-amber-950 to-red-950 border-b border-amber-500/30 px-4 py-2 text-center text-xs text-amber-200 font-semibold flex items-center justify-center flex-wrap gap-2 shadow-md">
+        <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+        <span>
+          <strong>Store Closed for Now:</strong> Pre-orders have officially ended as printing & compilation are underway.
+        </span>
+        <button
+          onClick={() => setIsClosedModalOpen(true)}
+          className="underline font-bold text-amber-300 hover:text-white cursor-pointer ml-1"
+        >
+          Read Full Notice
+        </button>
+      </div>
 
       {/* Main View Area */}
       {currentView === 'admin' ? (
@@ -621,6 +691,7 @@ export default function App() {
             orders={orders}
             onUpdateStatus={handleUpdateOrderStatus}
             onUpdatePaymentStatus={handleUpdatePaymentStatus}
+            onDeleteOrder={handleDeleteOrder}
             onRefreshOrders={fetchServerData}
             onLockAdmin={handleLockAdmin}
           />
@@ -782,11 +853,25 @@ export default function App() {
       {/* Digital Receipt Modal (Consolidated Master Ticket for Multi-Shirt Orders) */}
       <OrderReceiptModal order={confirmedOrder} onClose={() => setConfirmedOrder(null)} />
 
-      {/* Coordinator Passkey Modal (Passkey: Elsieee) */}
+      {/* Coordinator Passkey Modal (Passkey: FLC) */}
       <AdminAuthModal
         isOpen={isAdminAuthModalOpen}
         onSuccess={handleAdminAuthSuccess}
         onCancel={() => setIsAdminAuthModalOpen(false)}
+      />
+
+      {/* Store Closed Notice Pop-up (Active for all visitors, with direct Admin access for coordinators) */}
+      <ClosedAnnouncementModal
+        isOpen={isClosedModalOpen}
+        onClose={() => setIsClosedModalOpen(false)}
+        onOpenAdmin={() => {
+          if (isAdminAuthenticated) {
+            setCurrentView('admin');
+          } else {
+            setAdminAuthPendingAction('admin');
+            setIsAdminAuthModalOpen(true);
+          }
+        }}
       />
     </div>
   );

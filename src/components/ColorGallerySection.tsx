@@ -386,19 +386,18 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
               <button
                 type="button"
                 onClick={() => onAddToCart(false)}
-                className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98] cursor-pointer"
+                className="w-full py-3.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all active:scale-[0.98] cursor-pointer"
               >
-                <ShoppingBag className="w-4 h-4" />
-                <span>Add to Pre-Order Bag</span>
+                <Lock className="w-4 h-4" />
+                <span>Orders Closed for Now · View Notice</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => onAddToCart(true)}
-                className="w-full py-3 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-xs flex items-center justify-center gap-2 border border-neutral-700 transition-colors cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs flex items-center justify-center gap-2 border border-neutral-700 transition-colors cursor-pointer"
               >
-                <span>Instant MoMo Checkout</span>
-                <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+                <span>Printing & Compilation in Progress</span>
               </button>
             </div>
 

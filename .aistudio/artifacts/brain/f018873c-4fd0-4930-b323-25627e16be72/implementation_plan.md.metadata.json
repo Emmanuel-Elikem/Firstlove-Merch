@@ -1,6 +1,0 @@
-{
-  "summary": "Architectural plan to transition payment flow from Paystack to a direct Mobile Money (MoMo) checkout system featuring Emmanuel Nerkwei Nettey's account (0536193423), a GHC 1 per shirt network charge, secure random ticket generation for payment reference, automated WhatsApp group ticket sharing with payment screenshot submission prompt, and streamlined admin reconciliation.",
-  "updatedAt": "2026-10-17T02:02:12.681192397Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

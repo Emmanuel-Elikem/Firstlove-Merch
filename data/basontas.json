@@ -81,8 +81,8 @@
   },
   {
     "id": "hearing-and-seeing",
-    "name": "Projection",
-    "shortName": "Projection",
+    "name": "MEDIA Shirt",
+    "shortName": "MEDIA Shirt",
     "category": "basonta",
     "bodyColor": "#111215",
     "hex": "#111215",
@@ -90,10 +90,10 @@
     "textColor": "#FFFFFF",
     "printColors": "Orange & White",
     "imageFile": "/images/hearing-and-seeing.jpg",
-    "frontText": "PROJECTION",
+    "frontText": "MEDIA",
     "backText": "HEARING SEEING · ROMANS 10:17",
-    "tagline": "Projection & Media Crew",
-    "description": "Official projection and media workforce t-shirt featuring front chest PROJECTION lettering and multi-icon back graphics."
+    "tagline": "Media & Projection Crew",
+    "description": "Official Media workforce t-shirt featuring front chest MEDIA lettering and multi-icon back graphics."
   },
   {
     "id": "culinary-stars",
@@ -155,22 +155,6 @@
     "printColors": "Cyan & White",
     "imageFile": "/images/telepastoring.png",
     "frontText": "TELEPASTORING",
-    "backText": "FIRST LOVE CHURCH",
-    "tagline": "",
-    "description": ""
-  },
-  {
-    "id": "flowing-waters",
-    "name": "Flowing Waters",
-    "shortName": "Flowing Waters",
-    "category": "basonta",
-    "bodyColor": "#E8B012",
-    "hex": "#E8B012",
-    "accentHex": "#FFFFFF",
-    "textColor": "#111111",
-    "printColors": "Black & White",
-    "imageFile": "/images/flowing-waters.png",
-    "frontText": "FLOWING WATERS",
     "backText": "FIRST LOVE CHURCH",
     "tagline": "",
     "description": ""

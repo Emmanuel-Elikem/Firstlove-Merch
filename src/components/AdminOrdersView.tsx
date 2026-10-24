@@ -12,13 +12,14 @@ import { CHURCH_MOMO_NAME, CHURCH_MOMO_NUMBER } from './CartDrawer';
 import { 
   Package, DollarSign, Download, Search, CheckCircle, Clock, 
   Copy, Check, AlertCircle, RefreshCw, Phone, ShieldCheck, 
-  Lock, ExternalLink, Filter, HelpCircle, Layers, Smartphone, MessageCircle 
+  Lock, ExternalLink, Filter, HelpCircle, Layers, Smartphone, MessageCircle, Trash2 
 } from 'lucide-react';
 
 interface AdminOrdersViewProps {
   orders: CustomerOrder[];
   onUpdateStatus: (orderId: string, status: 'pending' | 'ready_for_pickup' | 'collected') => void;
   onUpdatePaymentStatus?: (orderId: string, paymentStatus: 'paid' | 'pending' | 'failed') => void;
+  onDeleteOrder?: (orderId: string) => void;
   onRefreshOrders: () => void;
   onLockAdmin?: () => void;
 }
@@ -27,6 +28,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
   orders,
   onUpdateStatus,
   onUpdatePaymentStatus,
+  onDeleteOrder,
   onRefreshOrders,
   onLockAdmin,
 }) => {
@@ -34,6 +36,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'ready_for_pickup' | 'collected'>('all');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard?.writeText(text);
@@ -491,7 +494,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
                 <th className="py-3 px-4">Purchaser Details</th>
                 <th className="py-3 px-4">Items & White Text Distinction</th>
                 <th className="py-3 px-4">Amount (GHC 1 Fee)</th>
-                <th className="py-3 px-4">Reversible Collection Status</th>
+                <th className="py-3 px-4">Collection Status & Delete</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800/60 font-mono">
@@ -631,7 +634,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Reversible Status Dropdown (Change to any status freely) */}
+                      {/* Reversible Status Dropdown & Delete Action */}
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-2">
                           <select
@@ -655,6 +658,43 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
                               ✅ Collected
                             </option>
                           </select>
+
+                          {/* 1-Click Delete Order Button */}
+                          {onDeleteOrder && (
+                            confirmDeleteId === order.id ? (
+                              <div className="flex items-center gap-1.5 bg-red-950/90 border border-red-600/70 p-1 rounded-xl shadow-lg animate-in fade-in">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onDeleteOrder(order.id);
+                                    setConfirmDeleteId(null);
+                                  }}
+                                  className="px-2 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white font-black text-[10px] uppercase tracking-wider cursor-pointer whitespace-nowrap shadow-sm"
+                                  title="Permanently remove order"
+                                >
+                                  Delete
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="px-1.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] cursor-pointer"
+                                  title="Cancel deletion"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(order.id)}
+                                className="p-2 rounded-xl bg-neutral-900/80 border border-neutral-800 text-neutral-400 hover:text-red-400 hover:border-red-500/40 hover:bg-red-950/40 transition-all cursor-pointer"
+                                title={`Delete order ${order.id}`}
+                                aria-label={`Delete order ${order.id}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )
+                          )}
                         </div>
                       </td>
                     </tr>
