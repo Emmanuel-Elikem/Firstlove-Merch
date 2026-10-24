@@ -11,7 +11,27 @@ interface OrderReceiptModalProps {
 /** Official First Love Cape Coast pre-order WhatsApp group. */
 export const WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/DKOiIKkBd3MG9pvPAdXRIm';
 
+const AUTO_OPEN_GROUP_SECONDS = 6;
+
 export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onClose }) => {
+  const [secondsLeft, setSecondsLeft] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    setSecondsLeft(order ? AUTO_OPEN_GROUP_SECONDS : null);
+  }, [order?.id]);
+
+  React.useEffect(() => {
+    if (secondsLeft === null) return;
+    if (secondsLeft <= 0) {
+      setSecondsLeft(null);
+      // Same-tab navigation: a timer-triggered window.open is blocked as a popup on most phones.
+      window.location.href = WHATSAPP_GROUP_LINK;
+      return;
+    }
+    const t = setTimeout(() => setSecondsLeft((s) => (s === null ? null : s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [secondsLeft]);
+
   if (!order) return null;
 
   const orderDate = new Date(order.paidAt || order.createdAt).toLocaleDateString('en-GB', {
@@ -166,8 +186,21 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
             <div className="p-3.5 rounded-xl bg-emerald-950/50 border border-emerald-700/50 text-xs text-emerald-200 space-y-1">
               <strong className="text-white block text-xs sm:text-sm">Last step: join the WhatsApp group</strong>
               <span className="text-emerald-300/90 text-[11px] sm:text-xs leading-relaxed block">
-                Pickup dates and distribution updates are shared there.
+                Pickup dates and distribution updates are shared there. Your order is already recorded, so there's
+                nothing to send. Just join.
               </span>
+              {secondsLeft !== null && (
+                <span className="text-white text-[11px] sm:text-xs font-semibold block pt-1">
+                  Opening the group in {secondsLeft}s…{' '}
+                  <button
+                    type="button"
+                    onClick={() => setSecondsLeft(null)}
+                    className="underline text-emerald-300 hover:text-white cursor-pointer"
+                  >
+                    Stay on ticket
+                  </button>
+                </span>
+              )}
             </div>
 
             <div className="pt-1 space-y-2 pb-4">
@@ -175,6 +208,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                 href={WHATSAPP_GROUP_LINK}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => setSecondsLeft(null)}
                 className="w-full py-4 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-emerald-600/30 cursor-pointer min-h-[48px]"
               >
                 <MessageCircle className="w-4 h-4 shrink-0" />
