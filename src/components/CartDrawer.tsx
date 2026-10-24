@@ -88,6 +88,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           customerPhone: customerPhone.trim(),
           customerEmail: customerEmail.trim() || undefined,
           items,
+          returnOrigin: window.location.origin,
         }),
       });
       const data = await res.json().catch(() => ({}));

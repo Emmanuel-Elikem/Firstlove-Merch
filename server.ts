@@ -419,6 +419,27 @@ function requestBaseUrl(req: Request): string {
   return process.env.APP_URL || `${protocol}://${host}`;
 }
 
+/**
+ * Paystack sends the customer back to the site they started on (e.g. the *.ai.studio domain
+ * rather than the Cloud Run URL in APP_URL) so their bag and ticket live on the same origin.
+ * Only the store's own hosts are accepted, to avoid an open redirect.
+ */
+function paymentReturnBaseUrl(req: Request, requestedOrigin: unknown): string {
+  const fallback = requestBaseUrl(req);
+  if (typeof requestedOrigin !== 'string') return fallback;
+  try {
+    const url = new URL(requestedOrigin);
+    const allowedHosts = new Set([new URL(fallback).host, req.get('host') || '']);
+    const ok =
+      allowedHosts.has(url.host) ||
+      (url.protocol === 'https:' && url.hostname.endsWith('.ai.studio')) ||
+      url.hostname === 'localhost';
+    return ok ? url.origin : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 async function findOrderByPaystackReference(reference: string): Promise<any | null> {
   if (supabaseEnabled) {
     try {
@@ -568,7 +589,7 @@ app.post('/api/checkout', async (req: Request, res: Response) => {
       return paystackNotConfigured(res);
     }
 
-    const { customerName, customerPhone, customerEmail, items } = req.body || {};
+    const { customerName, customerPhone, customerEmail, items, returnOrigin } = req.body || {};
     const name = String(customerName || '').trim();
     const phone = String(customerPhone || '').trim();
     if (!name || !phone) {
@@ -618,7 +639,7 @@ app.post('/api/checkout', async (req: Request, res: Response) => {
         amount: Math.round(order.totalAmountGhc * 100),
         currency: 'GHS',
         reference: order.paystackReference,
-        callback_url: `${requestBaseUrl(req)}/payment-callback`,
+        callback_url: `${paymentReturnBaseUrl(req, returnOrigin)}/payment-callback`,
         channels: ['mobile_money', 'card'],
         metadata: {
           orderId: order.id,
