@@ -8,7 +8,6 @@ import {
   isBasontaColor,
   cartItemProductLabel,
 } from '../data/merchData';
-import { CHURCH_MOMO_NAME, CHURCH_MOMO_NUMBER } from './CartDrawer';
 import { 
   Package, DollarSign, Download, Search, CheckCircle, Clock, 
   Copy, Check, AlertCircle, RefreshCw, Phone, ShieldCheck, 
@@ -243,13 +242,12 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
             <Smartphone className="w-4 h-4" />
           </div>
           <div>
-            <span className="text-[10px] uppercase font-bold text-amber-400 block">MoMo Payment Account</span>
-            <span className="font-mono font-bold text-white text-sm">0536193423</span>
-            <span className="text-neutral-400 ml-2">({CHURCH_MOMO_NAME || 'Emmanuel Nerkwei Nettey'})</span>
+            <span className="text-[10px] uppercase font-bold text-amber-400 block">Payments via Paystack</span>
+            <span className="font-bold text-white text-sm">Mobile Money & card, confirmed automatically</span>
           </div>
         </div>
         <div className="text-[11px] text-neutral-400">
-          Members are instructed to use their <strong className="text-amber-300">Ticket Number (e.g. FLC-XXXXX)</strong> as the MoMo reference.
+          Paid orders are sent to the <a href="https://flc-shirts.vercel.app" target="_blank" rel="noopener noreferrer" className="text-amber-300 underline">FLC Shirts delivery list</a> automatically, one row per shirt.
         </div>
       </div>
 
@@ -521,7 +519,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
                       <td className="py-3.5 px-4 font-bold text-white font-mono">
                         <div className="text-amber-400 font-black text-sm">{order.id}</div>
                         <div className="text-[10px] text-neutral-500 font-mono truncate max-w-[120px]">
-                          Ref: {order.momoReference || order.id}
+                          Ref: {order.paystackReference || order.momoReference || order.id}
                         </div>
                       </td>
 
@@ -536,8 +534,26 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
                           ) : (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-950 text-amber-300 border border-amber-700/80">
                               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                              <span>Awaiting Proof</span>
+                              <span>{order.paystackReference ? 'Awaiting Paystack' : 'Awaiting Proof'}</span>
                             </span>
+                          )}
+
+                          {isPaid && order.paystackReference && (
+                            order.deliveryListSyncedAt ? (
+                              <span className="block text-[10px] text-emerald-400/90">On delivery list</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await fetch(`/api/orders/${order.id}/sync-delivery`, { method: 'POST' }).catch(() => {});
+                                  onRefreshOrders?.();
+                                }}
+                                title={order.deliveryListError || undefined}
+                                className="block text-[10px] font-semibold underline text-red-400 hover:text-red-300 cursor-pointer"
+                              >
+                                Not on delivery list · Retry
+                              </button>
+                            )
                           )}
 
                           {/* Quick Toggle for Payment */}

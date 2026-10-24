@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { CartItem, CustomerOrder } from '../types/merch';
-import { COLOR_OPTIONS, cartItemTitle, isBasontaColor, BASONTA_PRICE_GHC } from '../data/merchData';
-import { getShortOrderWhatsAppMessage, copyTextToClipboard } from './OrderReceiptModal';
+import { CartItem } from '../types/merch';
+import { COLOR_OPTIONS, cartItemTitle, isBasontaColor, BASONTA_PRICE_GHC, FEE_PER_SHIRT_GHC, processingFeeFor } from '../data/merchData';
 import { 
   X, Trash2, ArrowRight, ShieldCheck, Phone, User, 
-  AlertCircle, Copy, Check, Smartphone, 
-  MessageCircle, Info, Sparkles 
+  AlertCircle, Smartphone, Mail, Sparkles 
 } from 'lucide-react';
 
 interface CartDrawerProps {
@@ -14,20 +12,10 @@ interface CartDrawerProps {
   items: CartItem[];
   onUpdateQuantity: (id: string, delta: number) => void;
   onRemoveItem: (id: string) => void;
-  onClearCart: () => void;
-  onOrderSuccess: (order: CustomerOrder) => void;
 }
 
-// Mobile Money Recipient Details
-export const CHURCH_MOMO_NUMBER = '0536193423';
-export const CHURCH_MOMO_NAME = 'Emmanuel Nerkwei Nettey';
-export const FEE_PER_SHIRT_GHC = 1; // GHC 1.00 fee for charges per shirt ordered
-
-// Secure randomly generated ticket number generator (5 random digits)
-export const generateSecureTicketId = (): string => {
-  const randomNum = Math.floor(10000 + Math.random() * 90000);
-  return `FLC-${randomNum}`;
-};
+/** Order saved by /api/checkout while the customer is on the Paystack page. */
+export const PENDING_CHECKOUT_KEY = 'flc_pending_checkout';
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   isOpen,
@@ -35,47 +23,26 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   items,
   onUpdateQuantity,
   onRemoveItem,
-  onClearCart,
-  onOrderSuccess,
 }) => {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [momoSenderPhone, setMomoSenderPhone] = useState('');
-  const [momoTransactionId, setMomoTransactionId] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  // Secure Random Ticket Number assigned to this checkout session
-  const [secureTicketId, setSecureTicketId] = useState<string>(() => generateSecureTicketId());
-
-  // Generate a fresh secure ticket ID whenever the drawer is opened fresh with items
   useEffect(() => {
-    if (isOpen && items.length > 0) {
-      setSecureTicketId(generateSecureTicketId());
+    if (isOpen) {
       setErrorMessage('');
+      setIsSubmitting(false);
     }
   }, [isOpen]);
-
-  // Keep sender phone in sync with customer phone by default if user hasn't typed a different one
-  useEffect(() => {
-    if (!momoSenderPhone && customerPhone) {
-      setMomoSenderPhone(customerPhone);
-    }
-  }, [customerPhone]);
 
   if (!isOpen) return null;
 
   const subtotalGhc = items.reduce((acc, item) => acc + item.subtotal, 0);
   const totalShirtsCount = items.reduce((acc, item) => acc + item.quantity, 0);
-  const processingFeeGhc = totalShirtsCount * FEE_PER_SHIRT_GHC;
+  const processingFeeGhc = processingFeeFor(subtotalGhc, totalShirtsCount);
   const totalAmountGhc = subtotalGhc + processingFeeGhc;
-
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard?.writeText(text);
-    setCopiedField(label);
-    setTimeout(() => setCopiedField(null), 2500);
-  };
 
   // Validate phone number format (supports Ghanaian local 024XXXXXXX, 055..., 020..., and +233...)
   const validatePhone = (phone: string): boolean => {
@@ -85,7 +52,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     return ghanaLocalRegex.test(cleaned) || ghanaIntlRegex.test(cleaned) || cleaned.length >= 10;
   };
 
-  // Process and record order after user has sent Mobile Money
+  // Server prices the bag, saves a pending order, and returns the Paystack checkout page to send the customer to
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
@@ -105,74 +72,37 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       return;
     }
 
+    if (customerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
+      setErrorMessage('That email address does not look right. You can also leave it empty.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const email = `${customerPhone.replace(/\D/g, '')}@firstlove.org`;
-      const completedOrder: CustomerOrder = {
-        id: secureTicketId,
-        churchBranch: 'First Love Cape Coast',
-        customerName: customerName.trim(),
-        customerPhone: customerPhone.trim(),
-        customerEmail: email,
-        pickupNotes: '',
-        items: [...items],
-        subtotalGhc,
-        processingFeeGhc,
-        feePerShirtGhc: FEE_PER_SHIRT_GHC,
-        totalAmountGhc,
-        currency: 'GHS',
-        momoNumber: CHURCH_MOMO_NUMBER,
-        momoAccountName: CHURCH_MOMO_NAME,
-        momoReference: secureTicketId,
-        momoSenderPhone: momoSenderPhone.trim() || customerPhone.trim(),
-        momoTransactionId: momoTransactionId.trim() || undefined,
-        paymentMode: 'live',
-        paymentStatus: 'pending', // Awaiting screenshot verification in WhatsApp group
-        collectionStatus: 'pending',
-        channel: 'mobile_money',
-        createdAt: new Date().toISOString(),
-      };
-
-      // 1. Save locally to localStorage as immediate safety net
-      try {
-        const existing = localStorage.getItem('flc_orders');
-        const list = existing ? JSON.parse(existing) : [];
-        if (Array.isArray(list)) {
-          const updated = [completedOrder, ...list.filter((o: any) => o.id !== completedOrder.id)];
-          localStorage.setItem('flc_orders', JSON.stringify(updated));
-        }
-      } catch (e) {
-        console.warn('Local orders cache warning:', e);
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: customerName.trim(),
+          customerPhone: customerPhone.trim(),
+          customerEmail: customerEmail.trim() || undefined,
+          items,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !data.authorizationUrl) {
+        throw new Error(data.message || 'Could not start payment. Please try again.');
       }
 
-      // 2. Save to server backend (must succeed/attempt before opening WhatsApp flow)
       try {
-        const res = await fetch('/api/orders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(completedOrder),
-        });
-        if (!res.ok) {
-          console.warn('Backend order save warning status:', res.status);
-        }
-      } catch (err) {
-        console.warn('Backend order save network warning:', err);
-      }
+        localStorage.setItem(PENDING_CHECKOUT_KEY, JSON.stringify(data.order));
+      } catch {}
 
-      // 2. Copy short WhatsApp group paste message (receipt modal opens group link)
-      const ticketMessage = getShortOrderWhatsAppMessage(completedOrder);
-      await copyTextToClipboard(ticketMessage);
-
-      // 3. Clear cart and notify app → receipt modal shows message + group CTA
-      setIsSubmitting(false);
-      onClearCart();
-      onClose();
-      onOrderSuccess(completedOrder);
-
+      window.location.href = data.authorizationUrl;
     } catch (err: any) {
-      console.error('Order creation error:', err);
-      setErrorMessage(err.message || 'Could not submit order. Please try again.');
+      console.error('Checkout error:', err);
+      setErrorMessage(err.message || 'Could not start payment. Please try again.');
       setIsSubmitting(false);
     }
   };
@@ -195,7 +125,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2 truncate">
                   <span>Pre-Order Bag</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold shrink-0">
-                    MoMo
+                    Paystack
                   </span>
                 </h2>
                 <p className="text-[11px] text-neutral-400 truncate">First Love Cape Coast</p>
@@ -351,162 +281,33 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   </div>
                 </div>
 
-                {/* BOLD MOBILE MONEY PAYMENT BOX */}
                 <div className="space-y-3 pt-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>2. Mobile Money Payment</span>
-                    </span>
-                    <span className="text-[11px] text-neutral-400 font-mono">
-                      Charges: GHC 1 / shirt
-                    </span>
-                  </div>
+                  <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>2. Pay Securely with Paystack</span>
+                  </span>
 
-                  <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-b from-amber-500/10 via-neutral-950 to-neutral-950 border-2 border-amber-500/40 space-y-3.5 shadow-xl">
-                    
-                    {/* BOLD MoMo Number & Account Name */}
-                    <div className="p-3 rounded-xl bg-neutral-900 border border-amber-500/30 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-[11px] uppercase tracking-wider font-extrabold text-amber-400 flex items-center gap-1.5">
-                          <Smartphone className="w-3.5 h-3.5" />
-                          <span>MTN Mobile Money</span>
-                        </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
-                          Send MoMo
-                        </span>
-                      </div>
+                  <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-b from-amber-500/10 via-neutral-950 to-neutral-950 border-2 border-amber-500/40 space-y-3 shadow-xl">
+                    <ol className="list-decimal list-inside space-y-1 text-[11px] text-neutral-300">
+                      <li>Tap <strong className="text-white">Pay</strong> below to open Paystack checkout.</li>
+                      <li>Choose <strong className="text-amber-300">Mobile Money</strong> (MTN, Telecel, AirtelTigo) or card.</li>
+                      <li>Approve the prompt on your phone.</li>
+                      <li>You come back here with your confirmed pickup ticket. No screenshots needed.</li>
+                    </ol>
 
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
-                        <div>
-                          {/* BOLD NUMBER */}
-                          <div className="text-2xl sm:text-3xl font-mono font-black text-amber-300 tracking-wider">
-                            {CHURCH_MOMO_NUMBER}
-                          </div>
-                          {/* ACCOUNT NAME */}
-                          <div className="text-xs font-bold text-white flex items-center gap-1.5 mt-0.5">
-                            <span className="text-neutral-400 font-normal">Name:</span>
-                            <span className="text-amber-200">{CHURCH_MOMO_NAME}</span>
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(CHURCH_MOMO_NUMBER, 'momo_num')}
-                          className="w-full sm:w-auto px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer shrink-0"
-                        >
-                          {copiedField === 'momo_num' ? (
-                            <>
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Number Copied!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3.5 h-3.5" />
-                              <span>Copy Number</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-neutral-300 flex items-center gap-1.5 mb-1">
+                        <Mail className="w-3.5 h-3.5 text-neutral-500" />
+                        <span>Email for receipt (optional)</span>
+                      </label>
+                      <input
+                        type="email"
+                        value={customerEmail}
+                        onChange={(e) => setCustomerEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-white placeholder-neutral-600 text-xs focus:outline-none focus:border-amber-500 transition-colors"
+                      />
                     </div>
-
-                    {/* PAYMENT REFERENCE / RANDOM SECURE TICKET NUMBER */}
-                    <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-500/40 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] uppercase tracking-wider font-extrabold text-blue-300 flex items-center gap-1">
-                          <Info className="w-3 h-3 text-blue-400" />
-                          <span>Payment Reference (Ticket ID)</span>
-                        </span>
-                        <span className="text-[10px] text-blue-400 font-bold">Required</span>
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-0.5">
-                        <div className="text-lg sm:text-xl font-mono font-black text-white tracking-widest bg-blue-950/80 px-3 py-1.5 rounded-lg border border-blue-600/50 text-center sm:text-left">
-                          {secureTicketId}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(secureTicketId, 'ref_code')}
-                          className="w-full sm:w-auto px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer shrink-0"
-                        >
-                          {copiedField === 'ref_code' ? (
-                            <>
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Reference Copied!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3.5 h-3.5" />
-                              <span>Copy Reference</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                      <p className="text-[11px] text-blue-200/90 leading-snug pt-1">
-                        ⚠️ When sending MoMo, enter <strong className="font-mono text-white underline">{secureTicketId}</strong> as the payment <strong>Reference</strong>.
-                      </p>
-                    </div>
-
-                    {/* Simple Instructions */}
-                    <div className="space-y-1 text-[11px] text-neutral-300 bg-neutral-900/60 p-3 rounded-xl border border-neutral-800">
-                      <span className="font-bold text-white block mb-0.5">MoMo Transfer Steps:</span>
-                      <ol className="list-decimal list-inside space-y-1 text-neutral-400">
-                        <li>Dial <strong className="text-white">*170#</strong> or open MoMo app</li>
-                        <li>Send Money &rarr; MoMo User &rarr; <strong className="text-amber-300">{CHURCH_MOMO_NUMBER}</strong></li>
-                        <li>Confirm recipient name: <strong className="text-white">{CHURCH_MOMO_NAME}</strong></li>
-                        <li>Amount: <strong className="text-emerald-300">GHC {totalAmountGhc.toFixed(2)}</strong></li>
-                        <li>Reference: <strong className="text-blue-300 font-mono">{secureTicketId}</strong></li>
-                        <li>Take a screenshot of the confirmation SMS!</li>
-                      </ol>
-                    </div>
-
-                    {/* SENDER INFO (Optional to assist verification) */}
-                    <div className="pt-1 space-y-2">
-                      <span className="text-[11px] font-bold text-neutral-300 block">
-                        3. Transfer Sender (Optional):
-                      </span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] text-neutral-400 block mb-0.5">
-                            MoMo Number Sent From:
-                          </label>
-                          <input
-                            type="tel"
-                            value={momoSenderPhone}
-                            onChange={(e) => setMomoSenderPhone(e.target.value)}
-                            placeholder="024XXXXXXX"
-                            className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-600 text-xs focus:outline-none focus:border-amber-500 font-mono"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[10px] text-neutral-400 block mb-0.5">
-                            MoMo Transaction ID (Optional):
-                          </label>
-                          <input
-                            type="text"
-                            value={momoTransactionId}
-                            onChange={(e) => setMomoTransactionId(e.target.value)}
-                            placeholder="e.g. 19827381923"
-                            className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-white placeholder-neutral-600 text-xs focus:outline-none focus:border-amber-500 font-mono"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* WhatsApp Group Posting Reminder */}
-                <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-700/50 flex items-start gap-2.5 text-xs text-emerald-200">
-                  <MessageCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                  <div className="space-y-0.5">
-                    <strong className="text-white block">WhatsApp Group Screenshot Confirmation</strong>
-                    <span className="text-emerald-300/90 text-[11px] leading-relaxed">
-                      After submit, a short order message is copied. On the next screen, join the WhatsApp group, paste the message, and attach your MoMo payment screenshot.
-                    </span>
                   </div>
                 </div>
 
@@ -521,9 +322,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     <div className="flex items-center justify-between text-neutral-400">
                       <span className="flex items-center gap-1.5">
                         <span>Charges:</span>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 font-medium">
-                          +GHC 1.00 / shirt
-                        </span>
+                        {processingFeeGhc === totalShirtsCount * FEE_PER_SHIRT_GHC && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 font-medium">
+                            +GHC {FEE_PER_SHIRT_GHC.toFixed(2)} / shirt
+                          </span>
+                        )}
                       </span>
                       <span className="font-mono text-amber-400 font-semibold">+ GHC {processingFeeGhc.toFixed(2)}</span>
                     </div>
@@ -531,7 +334,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <div>
                         <span className="text-white font-bold block">Total Amount to Pay:</span>
                         <span className="text-[10px] text-neutral-400">
-                          Includes GHC 1.00 charge per shirt ({totalShirtsCount} {totalShirtsCount === 1 ? 'shirt' : 'shirts'})
+                          Includes Paystack & MoMo charges ({totalShirtsCount} {totalShirtsCount === 1 ? 'shirt' : 'shirts'})
                         </span>
                       </div>
                       <span className="text-2xl font-mono font-black text-amber-300 tabular-nums">
@@ -547,10 +350,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     className="w-full py-4 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-amber-500/20 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer min-h-[48px]"
                   >
                     {isSubmitting ? (
-                      <span>Saving Order & Preparing Ticket...</span>
+                      <span>Opening Paystack...</span>
                     ) : (
                       <>
-                        <span>I Have Paid GHC {totalAmountGhc.toFixed(2)} via MoMo — Submit</span>
+                        <span>Pay GHC {totalAmountGhc.toFixed(2)} with Paystack</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -558,7 +361,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
                   <div className="flex items-center justify-center gap-2 text-[11px] text-neutral-500 pt-0.5 text-center">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    <span>Ticket #{secureTicketId} · Verified on WhatsApp Group</span>
+                    <span>Secured by Paystack · Your ticket is confirmed automatically</span>
                   </div>
                 </div>
               </form>

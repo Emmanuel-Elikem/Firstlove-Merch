@@ -9,7 +9,7 @@ import { BASONTA_SHIRTS, FIRST_LOVE_MERCH_SHIRTS, INITIAL_ORDERS, MOCK_ORDER_IDS
 import { Navbar } from './components/Navbar';
 import { LandscapeCampaignBanner } from './components/LandscapeCampaignBanner';
 import { ColorGallerySection } from './components/ColorGallerySection';
-import { CartDrawer } from './components/CartDrawer';
+import { CartDrawer, PENDING_CHECKOUT_KEY } from './components/CartDrawer';
 import { FlyerModal } from './components/FlyerModal';
 import { SizeGuideModal } from './components/SizeGuideModal';
 import { OrderReceiptModal } from './components/OrderReceiptModal';
@@ -586,6 +586,34 @@ export default function App() {
     setConfirmedOrder(newOrder);
   };
 
+  // Customer is redirected back from Paystack to /?reference=FLC-xxxxx
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get('reference') || params.get('trxref');
+    if (!reference) return;
+    window.history.replaceState({}, '', window.location.pathname);
+
+    (async () => {
+      showToast('Confirming your Paystack payment...');
+      try {
+        const res = await fetch(`/api/verify-payment/${encodeURIComponent(reference)}`);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.verified && data.order) {
+          try {
+            localStorage.removeItem(PENDING_CHECKOUT_KEY);
+          } catch {}
+          setCartItems([]);
+          handleOrderSuccess(data.order);
+          return;
+        }
+        showToast(data.message ? `Payment not completed: ${data.message}` : 'Payment was not completed. You can try again.');
+        setIsCartOpen(true);
+      } catch {
+        showToast('Could not confirm payment yet. If you were charged, your ticket will appear once Paystack confirms.');
+      }
+    })();
+  }, []);
+
   const handleUpdateOrderStatus = async (orderId: string, status: 'pending' | 'ready_for_pickup' | 'collected') => {
     try {
       await fetch(`/api/orders/${orderId}/status`, {
@@ -741,9 +769,9 @@ export default function App() {
                   <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 font-black flex items-center justify-center mb-3">
                     1
                   </div>
-                  <h4 className="text-sm font-bold text-white mb-1">Pick Shirt & Send MoMo</h4>
+                  <h4 className="text-sm font-bold text-white mb-1">Pick Shirt & Size</h4>
                   <p className="text-xs text-neutral-400 leading-relaxed">
-                    Select your Basonta wing or First Love merch shirt & size, then transfer the total amount via MTN Mobile Money to <strong className="text-amber-300">0536193423</strong> with your ticket number as reference.
+                    Select your Basonta wing or First Love merch shirt & size, add it to your bag, and enter your name and phone number.
                   </p>
                 </div>
 
@@ -751,9 +779,9 @@ export default function App() {
                   <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-black flex items-center justify-center mb-3">
                     2
                   </div>
-                  <h4 className="text-sm font-bold text-white mb-1">Upload Proof in WhatsApp Group</h4>
+                  <h4 className="text-sm font-bold text-white mb-1">Pay with Paystack</h4>
                   <p className="text-xs text-neutral-400 leading-relaxed">
-                    Tap to join the official WhatsApp Group, paste your generated ticket, and upload your MoMo payment screenshot for instant verification.
+                    Pay with Mobile Money (MTN, Telecel, AirtelTigo) or card on Paystack. Your ticket is confirmed instantly, with no screenshots needed.
                   </p>
                 </div>
 
@@ -829,8 +857,6 @@ export default function App() {
         items={cartItems}
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveItem}
-        onClearCart={handleClearCart}
-        onOrderSuccess={handleOrderSuccess}
       />
 
       {/* Direct Basonta Photo Upload & Wing Manager Modal */}

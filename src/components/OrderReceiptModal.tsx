@@ -88,8 +88,10 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
 
   const shortMessage = order ? getShortOrderWhatsAppMessage(order) : '';
 
+  const paidOnline = !!order && order.paymentStatus === 'paid' && !!order.paystackReference;
+
   React.useEffect(() => {
-    if (!order) return;
+    if (!order || paidOnline) return;
     let cancelled = false;
     (async () => {
       const ok = await copyTextToClipboard(getShortOrderWhatsAppMessage(order));
@@ -169,7 +171,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
               First Love Cape Coast
             </span>
             <h2 className="text-lg sm:text-xl font-black tracking-tight mt-0.5 text-neutral-950">
-              Pre-Order Ticket Generated!
+              {paidOnline ? 'Payment Confirmed!' : 'Pre-Order Ticket Generated!'}
             </h2>
             <p className="text-xs text-neutral-900 font-semibold mt-0.5">
               Ticket ID: <span className="font-mono font-black">{order.id}</span> · {totalShirts} {totalShirts === 1 ? 'shirt' : 'shirts'}
@@ -177,6 +179,19 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
           </div>
 
           {/* Action Required Alert */}
+          {paidOnline ? (
+            <div className="bg-emerald-950/90 border-b border-emerald-800/80 p-4 sm:p-5 flex items-start gap-3 text-xs text-emerald-200">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div className="space-y-1">
+                <strong className="text-white block text-xs sm:text-sm">You're all set</strong>
+                <p className="text-emerald-300/90 text-[11px] sm:text-xs leading-relaxed">
+                  Paystack confirmed your payment and your shirts are on the distribution list. Show ticket <strong className="font-mono text-white">{order.id}</strong> (or your name / phone number) at the desk to collect.
+                </p>
+              </div>
+            </div>
+          ) : (
           <div className="bg-emerald-950/90 border-b border-emerald-800/80 p-4 sm:p-5 flex items-start gap-3 text-xs text-emerald-200">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
               <Camera className="w-4 h-4" />
@@ -190,6 +205,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
               </p>
             </div>
           </div>
+          )}
 
           <div className="p-4 sm:p-6 space-y-4">
             {/* Ticket Code Box */}
@@ -206,7 +222,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
               <div className="flex flex-col items-end gap-1">
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] sm:text-xs font-semibold">
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                  <span>MoMo Submitted</span>
+                  <span>{paidOnline ? 'Paid' : 'MoMo Submitted'}</span>
                 </div>
                 <span className="text-[10px] text-neutral-400 font-mono">
                   {totalShirts} {totalShirts === 1 ? 'shirt' : 'shirts'}
@@ -215,6 +231,20 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
             </div>
 
             {/* Payment Details */}
+            {paidOnline ? (
+              <div className="p-3.5 rounded-xl bg-neutral-950 border border-emerald-500/30 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-neutral-400">
+                  <span>Paid Via:</span>
+                  <span className="font-semibold text-white">
+                    Paystack{order.channel ? ` · ${order.channel.replace(/_/g, ' ')}` : ''}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-neutral-400">
+                  <span>Payment Reference:</span>
+                  <span className="font-mono font-bold text-emerald-400">{order.paystackReference}</span>
+                </div>
+              </div>
+            ) : (
             <div className="p-3.5 rounded-xl bg-neutral-950 border border-amber-500/30 space-y-1.5 text-xs">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 text-neutral-400">
                 <span>Sent To:</span>
@@ -231,6 +261,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                 </div>
               )}
             </div>
+            )}
 
             {/* Purchaser & Venue Info */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
@@ -296,7 +327,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                   <span className="flex items-center gap-1.5">
                     <span>Charges:</span>
                     <span className="px-1.5 py-0.2 rounded text-[9px] bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                      GHC 1 × {totalShirts} shirt{totalShirts === 1 ? '' : 's'}
+                      {totalShirts} shirt{totalShirts === 1 ? '' : 's'}
                     </span>
                   </span>
                   <span className="font-mono text-amber-400 font-semibold">
@@ -305,7 +336,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                 </div>
               </div>
               <div className="px-3.5 py-2.5 bg-neutral-950/90 border-t border-neutral-800 flex items-center justify-between text-xs">
-                <span className="font-bold text-neutral-200">Total MoMo Paid:</span>
+                <span className="font-bold text-neutral-200">{paidOnline ? 'Total Paid:' : 'Total MoMo Paid:'}</span>
                 <span className="text-base font-mono font-black text-amber-300 tabular-nums">
                   GHC {order.totalAmountGhc.toFixed(2)}
                 </span>
@@ -313,6 +344,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
             </div>
 
             {/* Short WhatsApp message — visible + Copy message */}
+            {!paidOnline && (
             <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-500">
@@ -331,6 +363,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                 {shortMessage}
               </pre>
             </div>
+            )}
 
             {/* Copy / paste notice */}
             {copyNotice && (
@@ -341,11 +374,13 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
             )}
 
             <div className="text-[11px] text-neutral-500 font-mono text-center">
-              Date: {orderDate} · Reference: {order.momoReference || order.id}
+              Date: {orderDate} · Reference: {order.paystackReference || order.momoReference || order.id}
             </div>
 
             <div className="pt-2 space-y-2 pb-4">
               {/* PRIMARY: copy short message + open SAME group invite link */}
+              {!paidOnline && (
+              <>
               <button
                 type="button"
                 onClick={sendOrderToWhatsAppGroup}
@@ -375,6 +410,8 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
                   <span>{copied ? 'Copied!' : 'Copy Message'}</span>
                 </button>
               </div>
+              </>
+              )}
 
               <button
                 type="button"

@@ -1,6 +1,6 @@
 {
   "name": "First Love Merch Store",
-  "description": "Official pre-order storefront for First Love Cape Coast shirts with direct Mobile Money payment and WhatsApp verification.",
+  "description": "Official pre-order storefront for First Love Cape Coast shirts with Paystack (Mobile Money / card) checkout that feeds the FLC Shirts delivery list.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

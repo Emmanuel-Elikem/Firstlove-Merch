@@ -82,6 +82,11 @@ export interface CustomerOrder {
   momoReference?: string;
   momoSenderPhone?: string;
   momoTransactionId?: string;
+  paystackReference?: string;
+  paystackTransactionId?: number | string;
+  paystackFeesGhc?: number;
+  deliveryListSyncedAt?: string;
+  deliveryListError?: string | null;
   screenshotProofUrl?: string;
   feePerShirtGhc?: number;
   paymentMode?: 'live' | 'test';

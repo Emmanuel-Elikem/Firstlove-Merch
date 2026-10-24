@@ -8,7 +8,21 @@ export const BASONTA_PRICE_GHC = 35;
 export const MERCH_STANDARD_PRICE_GHC = 60;
 /** First Love merch — premium / heavyweight edition */
 export const MERCH_PREMIUM_PRICE_GHC = 100;
-export const FEE_PER_SHIRT_GHC = 1;
+/** Covers Paystack's 1.95% plus the cost of cashing out the MoMo wallet the payouts land in. */
+export const FEE_PER_SHIRT_GHC = 1.5;
+/** Paystack Ghana local transaction fee (Mobile Money + local cards), deducted from what is settled. */
+export const PAYSTACK_FEE_RATE = 0.0195;
+
+/**
+ * Charges added on top of the shirts subtotal: GHC 1.50 per shirt, raised to the next 50 pesewas
+ * when Paystack's 1.95% on the final amount would be more than that (e.g. GHC 100 premium merch),
+ * so the church always nets at least the full shirt price.
+ */
+export function processingFeeFor(subtotalGhc: number, shirtCount: number): number {
+  const flat = shirtCount * FEE_PER_SHIRT_GHC;
+  const grossUp = Math.ceil((subtotalGhc / (1 - PAYSTACK_FEE_RATE) - subtotalGhc) * 2 - 1e-9) / 2;
+  return Math.max(flat, grossUp);
+}
 
 export const SHIRT_EDITIONS: Record<'standard' | 'premium', ShirtOption> = {
   standard: {

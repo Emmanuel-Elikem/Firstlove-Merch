@@ -29,15 +29,18 @@ import {
 import {
   BASONTA_SHIRTS,
   BASONTA_CATALOG_IDS,
+  FIRST_LOVE_MERCH_SHIRTS,
+  FEE_PER_SHIRT_GHC,
   mergeBasontasWithDefaults,
   isStaleDefaultBasontaImage,
+  processingFeeFor,
 } from './src/data/merchData.ts';
+import { deliveryListEnabled, buildDeliveryItems, pushToDeliveryList } from './delivery-list.ts';
 
 /** Pricing: basonta shirts GHC 35; First Love merch GHC 60 (standard) / 100 (premium). Server recomputes — does not trust client unit prices. */
 const BASONTA_PRICE_GHC = 35;
 const MERCH_STANDARD_PRICE_GHC = 60;
 const MERCH_PREMIUM_PRICE_GHC = 100;
-const FEE_PER_SHIRT_GHC = 1;
 const FIRST_LOVE_COLOR_IDS = new Set([
   'black-cyan',
   'blue-yellow',
@@ -88,7 +91,7 @@ function normalizeOrderPricing(order: any, basontaIds: Set<string>) {
     shirtCount += qty;
     return { ...item, quantity: qty, unitPrice, subtotal };
   });
-  const processingFeeGhc = shirtCount * FEE_PER_SHIRT_GHC;
+  const processingFeeGhc = processingFeeFor(subtotalGhc, shirtCount);
   const totalAmountGhc = subtotalGhc + processingFeeGhc;
   return {
     ...order,
@@ -108,7 +111,15 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json({ limit: '50mb' }));
+app.use(
+  express.json({
+    limit: '50mb',
+    verify: (req, _res, buf) => {
+      // Paystack signs the exact bytes it sent; re-serialising req.body can differ.
+      (req as any).rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Paystack keys: env only — no hard-coded fallbacks
@@ -402,65 +413,199 @@ app.get('/payment-callback', (req: Request, res: Response) => {
   }
 });
 
-// Paystack Initialize Payment Endpoint (Supports popup & standard redirect)
-app.post('/api/initialize-payment', async (req: Request, res: Response) => {
+function requestBaseUrl(req: Request): string {
+  const host = req.get('host') || 'localhost:3000';
+  const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+  return process.env.APP_URL || `${protocol}://${host}`;
+}
+
+async function findOrderByPaystackReference(reference: string): Promise<any | null> {
+  if (supabaseEnabled) {
+    try {
+      const found = await sbFindByPaystackRef(reference);
+      if (found) return found;
+    } catch (err) {
+      console.error('Supabase lookup by Paystack reference failed, using local file:', err);
+    }
+  }
+  return getStoredOrdersFromFile().find((o: any) => o.paystackReference === reference) ?? null;
+}
+
+async function saveOrder(order: any): Promise<any> {
+  const orders = getStoredOrdersFromFile();
+  const idx = orders.findIndex((o: any) => o.id === order.id);
+  if (idx >= 0) orders[idx] = { ...orders[idx], ...order };
+  else orders.unshift(order);
+  saveOrdersToFile(orders);
+
+  if (supabaseEnabled) {
+    try {
+      return await sbUpsertOrder(order);
+    } catch (err) {
+      console.error('Error saving order to Supabase, kept in local file backup:', err);
+    }
+  }
+  return order;
+}
+
+async function patchOrder(id: string, patch: Record<string, any>): Promise<any | null> {
+  const orders = getStoredOrdersFromFile();
+  const local = orders.find((o: any) => o.id === id);
+  if (local) {
+    Object.assign(local, patch);
+    saveOrdersToFile(orders);
+  }
+  if (supabaseEnabled) {
+    try {
+      const updated = await sbPatchOrder(id, patch);
+      if (updated) return updated;
+    } catch (err) {
+      console.error('Failed to patch order in Supabase:', err);
+    }
+  }
+  return local ?? null;
+}
+
+async function generateOrderId(): Promise<string> {
+  const taken = new Set((await getStoredOrders()).map((o: any) => o.id));
+  for (let i = 0; i < 20; i++) {
+    const id = `FLC-${crypto.randomInt(10000, 100000)}`;
+    if (!taken.has(id)) return id;
+  }
+  return `FLC-${Date.now().toString().slice(-7)}`;
+}
+
+async function ministryNameResolver(): Promise<(colorId: string, edition: string) => string> {
+  const names = new Map<string, string>();
+  try {
+    for (const b of await getMergedBasontas({ persistHeal: false })) {
+      if (b?.id && b?.name) names.set(b.id, b.name);
+    }
+  } catch {
+    // fall back to code defaults below
+  }
+  for (const b of BASONTA_SHIRTS) if (!names.has(b.id)) names.set(b.id, b.name);
+  return (colorId, edition) => {
+    const merch = FIRST_LOVE_MERCH_SHIRTS.find((m) => m.id === colorId);
+    if (merch) {
+      return `First Love Merch · ${merch.shortName} ${edition === 'premium' ? 'Premium' : 'Standard'}`;
+    }
+    return names.get(colorId) || colorId;
+  };
+}
+
+/** Sends a paid order's shirts to the FLC Shirts delivery list once; safe to call repeatedly. */
+async function syncOrderToDeliveryList(order: any): Promise<any> {
+  if (!deliveryListEnabled || order.deliveryListSyncedAt) return order;
+  try {
+    const rows = buildDeliveryItems(order, await ministryNameResolver());
+    await pushToDeliveryList(rows);
+    return (
+      (await patchOrder(order.id, { deliveryListSyncedAt: new Date().toISOString(), deliveryListError: null })) ||
+      order
+    );
+  } catch (err: any) {
+    console.error(`[Delivery list] Failed to sync ${order.id}:`, err);
+    return (await patchOrder(order.id, { deliveryListError: String(err?.message || err) })) || order;
+  }
+}
+
+/**
+ * Single place a Paystack transaction turns an order into "paid" — used by both the
+ * customer redirect (verify) and the webhook, so whichever arrives first wins and the
+ * other is a no-op.
+ */
+async function fulfillPaystackTransaction(tx: any): Promise<{ order: any | null; verified: boolean; message?: string }> {
+  const order = await findOrderByPaystackReference(String(tx?.reference || ''));
+  if (!order) return { order: null, verified: false, message: 'Order not found for this payment reference' };
+
+  if (tx.status !== 'success') {
+    return { order, verified: false, message: `Payment ${tx.status || 'not completed'}` };
+  }
+
+  const expectedPesewas = Math.round(Number(order.totalAmountGhc) * 100);
+  if (tx.currency !== 'GHS' || Number(tx.amount) < expectedPesewas) {
+    const updated = await patchOrder(order.id, {
+      paymentStatus: 'failed',
+      paymentNote: `Paystack amount ${tx.currency} ${Number(tx.amount) / 100} did not match order total GHS ${order.totalAmountGhc}`,
+    });
+    return { order: updated || order, verified: false, message: 'Paid amount does not match the order total' };
+  }
+
+  let current = order;
+  if (order.paymentStatus !== 'paid') {
+    current =
+      (await patchOrder(order.id, {
+        paymentStatus: 'paid',
+        channel: tx.channel || order.channel,
+        paidAt: tx.paid_at || tx.paidAt || new Date().toISOString(),
+        paystackTransactionId: tx.id,
+        paystackFeesGhc: typeof tx.fees === 'number' ? tx.fees / 100 : undefined,
+        paystackMomoNumber: tx.authorization?.mobile_money_number || undefined,
+        paystackProvider: tx.authorization?.bank || undefined,
+      })) || order;
+  }
+
+  current = await syncOrderToDeliveryList(current);
+  return { order: current, verified: true };
+}
+
+async function fetchPaystackTransaction(reference: string): Promise<any> {
+  const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` },
+  });
+  const data = await response.json();
+  if (!response.ok || !data.status) {
+    throw Object.assign(new Error(data.message || 'Paystack verification failed'), { status: response.status });
+  }
+  return data.data;
+}
+
+// Checkout: server prices the cart, saves a pending order, and opens a Paystack payment for it.
+app.post('/api/checkout', async (req: Request, res: Response) => {
   try {
     if (!PAYSTACK_SECRET_KEY) {
       return paystackNotConfigured(res);
     }
 
-    const { email, amountGhc, reference, metadata } = req.body;
-
-    if (!email || !amountGhc || !reference) {
-      return res.status(400).json({ success: false, message: 'Missing email, amount, or reference' });
+    const { customerName, customerPhone, customerEmail, items } = req.body || {};
+    const name = String(customerName || '').trim();
+    const phone = String(customerPhone || '').trim();
+    if (!name || !phone) {
+      return res.status(400).json({ success: false, message: 'Name and phone number are required' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'Your bag is empty' });
     }
 
-    const host = req.get('host') || 'localhost:3000';
-    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-    const baseUrl = process.env.APP_URL || `${protocol}://${host}`;
-
-    // Paystack takes amount in pesewas (1 GHS = 100 pesewas)
-    const amountInPesewas = Math.round(Number(amountGhc) * 100);
-
-    const payload = {
-      email,
-      amount: amountInPesewas,
-      currency: 'GHS',
-      reference,
-      callback_url: `${baseUrl}/payment-callback`,
-      metadata: {
-        ...metadata,
-        custom_fields: [
-          {
-            display_name: 'Customer Name',
-            variable_name: 'customer_name',
-            value: metadata?.customerName || 'First Love Member',
-          },
-          {
-            display_name: 'Phone Number',
-            variable_name: 'customer_phone',
-            value: metadata?.customerPhone || '',
-          },
-          {
-            display_name: 'Items Subtotal',
-            variable_name: 'subtotal_ghc',
-            value: metadata?.subtotalGhc ? `GHC ${Number(metadata.subtotalGhc).toFixed(2)}` : '',
-          },
-          {
-            display_name: 'Processing Fee (GHC 2/shirt)',
-            variable_name: 'processing_fee_ghc',
-            value: metadata?.processingFeeGhc
-              ? `GHC ${Number(metadata.processingFeeGhc).toFixed(2)}`
-              : 'GHC 2.00 / shirt',
-          },
-          {
-            display_name: 'Total Paid',
-            variable_name: 'total_paid_ghc',
-            value: `GHC ${Number(amountGhc).toFixed(2)}`,
-          },
-        ],
+    const id = await generateOrderId();
+    const email = String(customerEmail || '').trim() || `${phone.replace(/\D/g, '') || 'customer'}@firstlove.org`;
+    const basontaIds = await loadBasontaIdSet();
+    const order = normalizeOrderPricing(
+      {
+        id,
+        churchBranch: 'First Love Cape Coast',
+        customerName: name,
+        customerPhone: phone,
+        customerEmail: email,
+        pickupNotes: '',
+        items: items.map((i: any) => ({
+          id: String(i.id || crypto.randomUUID()),
+          color: String(i.color || ''),
+          edition: i.edition === 'premium' ? 'premium' : 'standard',
+          size: String(i.size || ''),
+          quantity: i.quantity,
+        })),
+        currency: 'GHS',
+        paystackReference: id,
+        paymentMode: PAYSTACK_SECRET_KEY.startsWith('sk_live_') ? 'live' : 'test',
+        paymentStatus: 'pending',
+        collectionStatus: 'pending',
+        channel: 'paystack',
+        createdAt: new Date().toISOString(),
       },
-    };
+      basontaIds
+    );
 
     const response = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
@@ -468,155 +613,105 @@ app.post('/api/initialize-payment', async (req: Request, res: Response) => {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        email,
+        amount: Math.round(order.totalAmountGhc * 100),
+        currency: 'GHS',
+        reference: order.paystackReference,
+        callback_url: `${requestBaseUrl(req)}/payment-callback`,
+        channels: ['mobile_money', 'card'],
+        metadata: {
+          orderId: order.id,
+          customerName: name,
+          customerPhone: phone,
+          custom_fields: [
+            { display_name: 'Ticket', variable_name: 'ticket', value: order.id },
+            { display_name: 'Customer Name', variable_name: 'customer_name', value: name },
+            { display_name: 'Phone Number', variable_name: 'customer_phone', value: phone },
+            {
+              display_name: 'Shirts',
+              variable_name: 'shirts',
+              value: order.items.map((i: any) => `${i.quantity}x ${i.color} (${i.size})`).join(', '),
+            },
+          ],
+        },
+      }),
     });
-
     const data = await response.json();
-
     if (!response.ok || !data.status) {
-      return res.status(response.status).json({
-        success: false,
-        message: data.message || 'Paystack initialization failed',
-        data,
-      });
+      return res.status(502).json({ success: false, message: data.message || 'Could not start Paystack payment' });
     }
 
+    const saved = await saveOrder(order);
     res.json({
       success: true,
-      data: data.data,
+      order: saved,
+      authorizationUrl: data.data.authorization_url,
+      accessCode: data.data.access_code,
+      reference: data.data.reference,
     });
   } catch (error: any) {
-    console.error('Initialize payment error:', error);
+    console.error('Checkout error:', error);
     res.status(500).json({ success: false, message: error.message || 'Internal server error' });
   }
 });
 
-// Paystack Verify Payment Endpoint
+// Called by the store after Paystack redirects the customer back.
 app.get('/api/verify-payment/:reference', async (req: Request, res: Response) => {
   try {
     if (!PAYSTACK_SECRET_KEY) {
       return paystackNotConfigured(res);
     }
-
-    const { reference } = req.params;
-
-    if (!reference) {
-      return res.status(400).json({ success: false, message: 'Reference required' });
-    }
-
-    const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-      },
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.status) {
-      return res.status(response.status).json({
-        success: false,
-        message: data.message || 'Verification failed',
-        data,
-      });
-    }
-
-    const transaction = data.data;
-    const isSuccess = transaction.status === 'success';
-
-    // Update order in persistent store if found
-    if (isSuccess) {
-      if (supabaseEnabled) {
-        const existing = await sbFindByPaystackRef(reference);
-        if (existing) {
-          await sbPatchOrder(existing.id, {
-            paymentStatus: 'paid',
-            channel: transaction.channel,
-            paidAt: transaction.paid_at || new Date().toISOString(),
-          });
-        }
-      } else {
-        const orders = getStoredOrdersFromFile();
-        const existingOrderIndex = orders.findIndex((o: any) => o.paystackReference === reference);
-
-        if (existingOrderIndex >= 0) {
-          orders[existingOrderIndex].paymentStatus = 'paid';
-          orders[existingOrderIndex].channel = transaction.channel;
-          orders[existingOrderIndex].paidAt = transaction.paid_at || new Date().toISOString();
-          saveOrdersToFile(orders);
-        }
-      }
-    }
-
-    res.json({
-      success: true,
-      verified: isSuccess,
-      transaction: {
-        reference: transaction.reference,
-        amountGhc: transaction.amount / 100,
-        currency: transaction.currency,
-        status: transaction.status,
-        channel: transaction.channel,
-        paidAt: transaction.paid_at,
-        customer: transaction.customer,
-      },
-    });
+    const tx = await fetchPaystackTransaction(req.params.reference);
+    const result = await fulfillPaystackTransaction(tx);
+    res.json({ success: true, ...result });
   } catch (error: any) {
     console.error('Verify payment error:', error);
-    res.status(500).json({ success: false, message: error.message || 'Internal server error' });
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Internal server error' });
   }
 });
 
-// Paystack Webhook Handler
+// Paystack Webhook: confirms payments even if the customer closes the tab before returning.
 app.post('/api/paystack-webhook', async (req: Request, res: Response) => {
   try {
     if (!PAYSTACK_SECRET_KEY) {
       return paystackNotConfigured(res, false);
     }
 
-    const hash = crypto
-      .createHmac('sha512', PAYSTACK_SECRET_KEY)
-      .update(JSON.stringify(req.body))
-      .digest('hex');
-
-    const signature = req.headers['x-paystack-signature'];
-
-    // Verify webhook signature if present
-    if (signature && signature !== hash) {
-      return res.status(400).send('Invalid signature');
+    const rawBody: Buffer | undefined = (req as any).rawBody;
+    const signature = String(req.headers['x-paystack-signature'] || '');
+    const hash = crypto.createHmac('sha512', PAYSTACK_SECRET_KEY).update(rawBody || '').digest('hex');
+    if (
+      !rawBody ||
+      signature.length !== hash.length ||
+      !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(hash))
+    ) {
+      return res.status(401).send('Invalid signature');
     }
 
     const event = req.body;
-    if (event.event === 'charge.success') {
-      const data = event.data;
-      const reference = data.reference;
-
-      if (supabaseEnabled) {
-        const order = await sbFindByPaystackRef(reference);
-        if (order) {
-          await sbPatchOrder(order.id, {
-            paymentStatus: 'paid',
-            channel: data.channel,
-            paidAt: data.paid_at || new Date().toISOString(),
-          });
-        }
-      } else {
-        const orders = getStoredOrdersFromFile();
-        const order = orders.find((o: any) => o.paystackReference === reference);
-
-        if (order) {
-          order.paymentStatus = 'paid';
-          order.channel = data.channel;
-          order.paidAt = data.paid_at || new Date().toISOString();
-          saveOrdersToFile(orders);
-        }
-      }
+    if (event?.event === 'charge.success' && event.data) {
+      await fulfillPaystackTransaction(event.data);
     }
-
     res.status(200).send('Webhook processed');
   } catch (err: any) {
     console.error('Webhook error:', err);
     res.status(500).send('Webhook error');
+  }
+});
+
+// Staff retry for a paid order whose delivery-list push failed.
+app.post('/api/orders/:id/sync-delivery', async (req: Request, res: Response) => {
+  try {
+    const order = (await getStoredOrders()).find((o: any) => o.id === req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (order.paymentStatus !== 'paid') {
+      return res.status(400).json({ success: false, message: 'Only paid orders go to the delivery list' });
+    }
+    const updated = await syncOrderToDeliveryList({ ...order, deliveryListSyncedAt: undefined });
+    res.json({ success: !updated.deliveryListError, order: updated });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
