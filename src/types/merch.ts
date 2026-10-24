@@ -85,6 +85,7 @@ export interface CustomerOrder {
   paystackReference?: string;
   paystackTransactionId?: number | string;
   paystackFeesGhc?: number;
+  paystackMomoNumber?: string;
   deliveryListSyncedAt?: string;
   deliveryListError?: string | null;
   screenshotProofUrl?: string;

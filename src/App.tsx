@@ -17,7 +17,6 @@ import { AdminOrdersView } from './components/AdminOrdersView';
 import { AdminAuthModal } from './components/AdminAuthModal';
 import { BasontaTeaser } from './components/BasontaTeaser';
 import { BasontaUploadModal } from './components/BasontaUploadModal';
-import { ClosedAnnouncementModal } from './components/ClosedAnnouncementModal';
 import { Sparkles, ShoppingBag, Lock } from 'lucide-react';
 
 // Helper to compress client-selected images before upload to keep payloads fast & under storage quota
@@ -198,7 +197,6 @@ export default function App() {
   const [isFlyerOpen, setIsFlyerOpen] = useState(false);
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [isClosedModalOpen, setIsClosedModalOpen] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Staff Passcode Authentication State (Passcode: FLC)
@@ -545,10 +543,41 @@ export default function App() {
     showToast('Admin session locked');
   };
 
-  // Cart operations (Pre-Orders currently closed for printing)
-  const handleAddToCart = (_openCartImmediately: boolean = false) => {
-    setIsClosedModalOpen(true);
-    showToast('Pre-orders are closed for now — printing & compilation in progress.');
+  const handleAddToCart = (openCartImmediately: boolean = false) => {
+    const allShirtsForPrice = [...basontas, ...FIRST_LOVE_MERCH_SHIRTS];
+    const selectedShirt = allShirtsForPrice.find((c) => c.id === selectedColorId);
+    // Basonta never uses Standard/Premium edition pricing — pin edition key for cart merge only
+    const cartEdition = isBasontaColor(selectedShirt, selectedColorId) ? 'standard' : selectedEdition;
+    const currentPrice = unitPriceForShirt(selectedShirt, cartEdition, selectedColorId);
+    const existingIndex = cartItems.findIndex(
+      (item) => item.edition === cartEdition && item.color === selectedColorId && item.size === selectedSize
+    );
+
+    if (existingIndex >= 0) {
+      const updated = [...cartItems];
+      updated[existingIndex].quantity += quantity;
+      updated[existingIndex].unitPrice = currentPrice;
+      updated[existingIndex].subtotal = updated[existingIndex].quantity * currentPrice;
+      setCartItems(updated);
+    } else {
+      const newItem: CartItem = {
+        id: `cart-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        edition: cartEdition,
+        color: selectedColorId,
+        size: selectedSize,
+        quantity,
+        unitPrice: currentPrice,
+        subtotal: quantity * currentPrice,
+      };
+      setCartItems([...cartItems, newItem]);
+    }
+
+    const colorName = allShirtsForPrice.find((c) => c.id === selectedColorId)?.shortName || selectedColorId;
+    showToast(`Added ${quantity}x ${colorName} (${selectedSize}) to pre-order bag!`);
+
+    if (openCartImmediately) {
+      setIsCartOpen(true);
+    }
   };
 
   const handleUpdateQuantity = (id: string, delta: number) => {
@@ -695,22 +724,7 @@ export default function App() {
         cartTotalGhc={cartTotalGhc}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenUploadManager={() => setIsUploadModalOpen(true)}
-        onOpenClosedNotice={() => setIsClosedModalOpen(true)}
       />
-
-      {/* Persistent Store Closed Notification Strip */}
-      <div className="w-full bg-gradient-to-r from-red-950 via-amber-950 to-red-950 border-b border-amber-500/30 px-4 py-2 text-center text-xs text-amber-200 font-semibold flex items-center justify-center flex-wrap gap-2 shadow-md">
-        <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-        <span>
-          <strong>Store Closed for Now:</strong> Pre-orders have officially ended as printing & compilation are underway.
-        </span>
-        <button
-          onClick={() => setIsClosedModalOpen(true)}
-          className="underline font-bold text-amber-300 hover:text-white cursor-pointer ml-1"
-        >
-          Read Full Notice
-        </button>
-      </div>
 
       {/* Main View Area */}
       {currentView === 'admin' ? (
@@ -886,19 +900,6 @@ export default function App() {
         onCancel={() => setIsAdminAuthModalOpen(false)}
       />
 
-      {/* Store Closed Notice Pop-up (Active for all visitors, with direct Admin access for coordinators) */}
-      <ClosedAnnouncementModal
-        isOpen={isClosedModalOpen}
-        onClose={() => setIsClosedModalOpen(false)}
-        onOpenAdmin={() => {
-          if (isAdminAuthenticated) {
-            setCurrentView('admin');
-          } else {
-            setAdminAuthPendingAction('admin');
-            setIsAdminAuthModalOpen(true);
-          }
-        }}
-      />
     </div>
   );
 }

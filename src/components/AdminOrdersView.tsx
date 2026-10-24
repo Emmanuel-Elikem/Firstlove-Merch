@@ -129,7 +129,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
       'Date', 
       'Customer Name', 
       'Phone', 
-      'MoMo Sender',
+      'Payer Phone',
       'Payment Status', 
       'Collection Status', 
       'Edition', 
@@ -161,7 +161,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
           `"${orderDate}"`,
           `"${order.customerName.replace(/"/g, '""')}"`,
           `"${order.customerPhone}"`,
-          `"${order.momoSenderPhone || order.customerPhone}"`,
+          `"${order.paystackMomoNumber || order.momoSenderPhone || order.customerPhone}"`,
           `"${order.paymentStatus.toUpperCase()}"`,
           `"${order.collectionStatus.replace(/_/g, ' ').toUpperCase()}"`,
           `"${productLabel}"`,
@@ -201,7 +201,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
           </div>
           <h2 className="text-xl font-black text-white mt-1">Pre-Orders Dashboard</h2>
           <p className="text-xs text-neutral-400 mt-0.5">
-            Track MoMo payments, verify WhatsApp screenshots, and update collection status anytime.
+            Paystack payments confirm automatically. Track orders and update collection status anytime.
           </p>
         </div>
 
@@ -235,7 +235,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
         </div>
       </div>
 
-      {/* MoMo Account Notice Card */}
+      {/* Payments Notice Card */}
       <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-neutral-200">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
@@ -403,7 +403,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
           <div>
             <h3 className="text-base font-bold text-white">Registered Customer Pre-Orders</h3>
             <p className="text-xs text-neutral-400 mt-0.5">
-              Change collection status reversibly anytime via the dropdown, or verify MoMo payment.
+              Change collection status reversibly anytime via the dropdown, or manually mark a payment.
             </p>
           </div>
 
@@ -590,7 +590,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
                         </div>
                         {order.momoSenderPhone && order.momoSenderPhone !== order.customerPhone && (
                           <div className="text-[10px] text-amber-400/90 font-mono mt-0.5">
-                            MoMo Sent From: {order.momoSenderPhone}
+                            Paid From: {order.momoSenderPhone}
                           </div>
                         )}
                       </td>

@@ -334,7 +334,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <div>
                         <span className="text-white font-bold block">Total Amount to Pay:</span>
                         <span className="text-[10px] text-neutral-400">
-                          Includes Paystack & MoMo charges ({totalShirtsCount} {totalShirtsCount === 1 ? 'shirt' : 'shirts'})
+                          Includes payment charges ({totalShirtsCount} {totalShirtsCount === 1 ? 'shirt' : 'shirts'})
                         </span>
                       </div>
                       <span className="text-2xl font-mono font-black text-amber-300 tabular-nums">

@@ -386,18 +386,19 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
               <button
                 type="button"
                 onClick={() => onAddToCart(false)}
-                className="w-full py-3.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all active:scale-[0.98] cursor-pointer"
+                className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98] cursor-pointer"
               >
-                <Lock className="w-4 h-4" />
-                <span>Orders Closed for Now · View Notice</span>
+                <ShoppingBag className="w-4 h-4" />
+                <span>Add to Pre-Order Bag</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => onAddToCart(true)}
-                className="w-full py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs flex items-center justify-center gap-2 border border-neutral-700 transition-colors cursor-pointer"
+                className="w-full py-3 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-xs flex items-center justify-center gap-2 border border-neutral-700 transition-colors cursor-pointer"
               >
-                <span>Printing & Compilation in Progress</span>
+                <span>Buy Now · Pay with Paystack</span>
+                <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
               </button>
             </div>
 
@@ -421,7 +422,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
             {/* Trust Markers */}
             <div className="flex items-center justify-between text-[11px] text-neutral-500 pt-2 border-t border-neutral-800/80">
               <span className="flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Direct MTN MoMo
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Secure Paystack checkout
               </span>
               <span className="flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5 text-amber-500" /> First Love Cape Coast
@@ -483,7 +484,7 @@ export const ColorGallerySection: React.FC<ColorGallerySectionProps> = ({
       {/* ========================================================================= */}
       <div className="pt-8 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-4 text-neutral-400">
         <div className="text-xs text-neutral-500 text-center sm:text-left">
-          <span>First Love Church Cape Coast · All official pre-orders powered by MTN MoMo</span>
+          <span>First Love Church Cape Coast · Payments secured by Paystack</span>
         </div>
 
         <div className="flex items-center gap-3">
